@@ -1,0 +1,63 @@
+{
+  "name": "cmux-picker",
+  "version": "0.0.0",
+  "description": "Pick a DOM element on any page in Chrome and send it, with a prompt, to a coding agent running in cmux.",
+  "type": "module",
+  "author": {
+    "name": "Marco Boffo",
+    "email": "chat@marcoboffo.me"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scaccogatto/cmux-picker.git"
+  },
+  "homepage": "https://github.com/scaccogatto/cmux-picker#readme",
+  "bugs": {
+    "url": "https://github.com/scaccogatto/cmux-picker/issues"
+  },
+  "keywords": [
+    "chrome-extension",
+    "cmux",
+    "claude-code",
+    "coding-agent",
+    "dom",
+    "element-picker",
+    "native-messaging",
+    "devtools",
+    "ai"
+  ],
+  "bin": {
+    "cmux-picker": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build && vite build --mode extension",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "e2e": "playwright test",
+    "store-assets": "STORE_ASSETS=1 playwright test e2e/store-assets.spec.ts",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@types/chrome": "^0.2.9",
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "eslint": "^10.10.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  }
+}
