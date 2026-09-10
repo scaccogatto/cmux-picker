@@ -82,7 +82,10 @@ Two findings from probing cmux 0.64.22, both of which shaped `spawnAgent`:
   therefore types the launch command into the live surface itself:
   `surface.send_text { surface_id, text: "claude" }` then
   `surface.send_key { surface_id, key: "enter" }`. That path was observed to start
-  the agent, including in a workspace that was never brought to the front.
+  the agent, including in a workspace that was never brought to the front. Typing
+  the moment `surface.split` returns races the shell's own startup, so
+  `startAgentIn` first polls `surface.read_text` until the terminal answers (it
+  errors with `internal_error` until then), best effort with a 10 second budget.
 - **The hook binding appears only once the agent begins a session.** Claude Code
   asks to trust a folder the first time it runs there and waits at that prompt, so
   no `SessionStart` hook fires and no entry lands in

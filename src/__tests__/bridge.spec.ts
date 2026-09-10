@@ -788,6 +788,7 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { currentDirectory: '/repo' })] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })
@@ -807,10 +808,42 @@ describe('spawnAgent', () => {
 
     // The split call, then send_text/send_key against the NEW surface (surf-new), not the
     // focused one (surf1), in that order.
-    const spawnCalls = fake.received.filter((r) => ['surface.split', 'surface.send_text', 'surface.send_key'].includes(r.method))
-    expect(spawnCalls.map((r) => r.method)).toEqual(['surface.split', 'surface.send_text', 'surface.send_key'])
-    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
-    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
+    const spawnCalls = fake.received.filter((r) => ['surface.split', 'surface.read_text', 'surface.send_text', 'surface.send_key'].includes(r.method))
+    expect(spawnCalls.map((r) => r.method)).toEqual(['surface.split', 'surface.read_text', 'surface.send_text', 'surface.send_key'])
+    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new' })
+    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
+    expect(spawnCalls[3]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
+  })
+
+  it('waits for the new surface terminal before typing, instead of racing the shell', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+    await writeHookStore(stateDir, 'claude', { surfaceId: 'surf-new', sessionId: 's-new', lifecycle: 'idle' })
+
+    // cmux answers surface.read_text with an error until the terminal exists; typing
+    // before that lands the text above the shell's login banner and it never runs.
+    let reads = 0
+
+    fake = await startFakeCmux({
+      'system.tree': () =>
+        treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
+      'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { currentDirectory: '/repo' })] }),
+      'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.read_text': () => {
+        reads += 1
+        return reads < 3 ? { __error: { code: 'internal_error', message: 'Failed to read terminal text' } } : { text: '' }
+      },
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
+    })
+
+    await spawnAgent(
+      { mode: 'here' },
+      { socketPath: fake.socketPath, stateDir, readyIntervalMs: 1, readyTimeoutMs: 500, pollIntervalMs: 1, pollTimeoutMs: 500 },
+    )
+
+    expect(reads).toBe(3)
+    const methods = fake.received.map((r) => r.method)
+    expect(methods.indexOf('surface.send_text')).toBeGreaterThan(methods.lastIndexOf('surface.read_text') - 1)
   })
 
   it('mode here honors an explicit name', async () => {
@@ -822,6 +855,7 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })
@@ -850,6 +884,7 @@ describe('spawnAgent', () => {
       'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'app', selected: true, panes: [] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { projectRootPath: '/home/me/app', currentDirectory: '/home/me/app' })] }),
       'workspace.create': () => ({ workspace_id: 'w2', surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })
@@ -880,10 +915,11 @@ describe('spawnAgent', () => {
     expect(created?.params).not.toHaveProperty('initial_input')
 
     // The create call, then send_text/send_key against the NEW surface (surf-new), in that order.
-    const spawnCalls = fake.received.filter((r) => ['workspace.create', 'surface.send_text', 'surface.send_key'].includes(r.method))
-    expect(spawnCalls.map((r) => r.method)).toEqual(['workspace.create', 'surface.send_text', 'surface.send_key'])
-    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
-    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
+    const spawnCalls = fake.received.filter((r) => ['workspace.create', 'surface.read_text', 'surface.send_text', 'surface.send_key'].includes(r.method))
+    expect(spawnCalls.map((r) => r.method)).toEqual(['workspace.create', 'surface.read_text', 'surface.send_text', 'surface.send_key'])
+    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new' })
+    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
+    expect(spawnCalls[3]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
   })
 
   it('mode worktree runs worktree add without -b when the branch already exists', async () => {
@@ -894,6 +930,7 @@ describe('spawnAgent', () => {
       'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'app', selected: true, panes: [] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { rootPath: '/home/me/app', currentDirectory: '/home/me/app' })] }),
       'workspace.create': () => ({ workspace_id: 'w2', surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })
@@ -919,6 +956,7 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })

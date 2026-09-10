@@ -329,6 +329,7 @@ describe('createHandler', () => {
       'system.tree': treeWithSurface,
       'extension.sidebar.snapshot': () => ({ workspaces: [{ id: 'w1', current_directory: '/tmp/proj' }] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.read_text': () => ({ text: '' }),
       'surface.send_text': () => ({}),
       'surface.send_key': () => ({}),
     })

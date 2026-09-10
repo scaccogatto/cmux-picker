@@ -571,6 +571,10 @@ const execFileAsync = promisify(execFile)
 const runGit: GitRunner = (args, cwd) => execFileAsync('git', args, { cwd })
 
 /** Default poll interval/timeout waiting for cmux's hook to bind a session to the new surface */
+/** How often, and for how long, to wait for a new surface's terminal before typing into it */
+const SURFACE_READY_INTERVAL_MS = 250
+const SURFACE_READY_TIMEOUT_MS = 10000
+
 const DEFAULT_POLL_INTERVAL_MS = 500
 const DEFAULT_POLL_TIMEOUT_MS = 60000
 
@@ -590,9 +594,44 @@ export const AGENT_LAUNCH_COMMAND = 'claude'
  * not visible, the terminal itself) exists. send_text plus an explicit Enter is
  * delivered to the live surface and does start the agent.
  */
-async function startAgentIn(socketPath: string, surfaceId: string, reqOpts: { password?: string | null }): Promise<void> {
+async function startAgentIn(
+  socketPath: string,
+  surfaceId: string,
+  reqOpts: { password?: string | null },
+  opts: { readyIntervalMs?: number; readyTimeoutMs?: number } = {},
+): Promise<void> {
+  await waitForSurfaceTerminal(socketPath, surfaceId, reqOpts, opts)
   await request(socketPath, 'surface.send_text', { surface_id: surfaceId, text: AGENT_LAUNCH_COMMAND }, undefined, reqOpts)
   await request(socketPath, 'surface.send_key', { surface_id: surfaceId, key: 'enter' }, undefined, reqOpts)
+}
+
+/**
+ * Waits until a freshly created surface has a terminal that can be read.
+ *
+ * Observed on cmux 0.64.22: typing into a surface the moment surface.split
+ * returns races the shell's startup, and the text is echoed into the pty before
+ * the shell exists (it then shows above the login banner and never runs).
+ * surface.read_text answering is the cheapest proof the terminal is live; it
+ * errors with internal_error until then. Best effort: on timeout we type anyway
+ * rather than failing a spawn that would probably have worked.
+ */
+async function waitForSurfaceTerminal(
+  socketPath: string,
+  surfaceId: string,
+  reqOpts: { password?: string | null },
+  opts: { readyIntervalMs?: number; readyTimeoutMs?: number },
+): Promise<void> {
+  const intervalMs = opts.readyIntervalMs ?? SURFACE_READY_INTERVAL_MS
+  const deadline = Date.now() + (opts.readyTimeoutMs ?? SURFACE_READY_TIMEOUT_MS)
+
+  while (Date.now() < deadline) {
+    const ready = await request(socketPath, 'surface.read_text', { surface_id: surfaceId }, undefined, reqOpts).then(
+      () => true,
+      () => false,
+    )
+    if (ready) return
+    await sleep(intervalMs)
+  }
 }
 
 /**
@@ -638,6 +677,8 @@ export async function spawnAgent(
     git?: GitRunner
     pollIntervalMs?: number
     pollTimeoutMs?: number
+    readyIntervalMs?: number
+    readyTimeoutMs?: number
   },
 ): Promise<SpawnResponse> {
   const reqOpts = { password: opts.password }
@@ -709,7 +750,7 @@ export async function spawnAgent(
     newWorkspaceId = createResult ? str(createResult.workspace_id) : null
   }
 
-  await startAgentIn(opts.socketPath, newSurfaceId, reqOpts)
+  await startAgentIn(opts.socketPath, newSurfaceId, reqOpts, { readyIntervalMs: opts.readyIntervalMs, readyTimeoutMs: opts.readyTimeoutMs })
   await waitForHookSession(stateDir, newSurfaceId, { intervalMs: pollIntervalMs, timeoutMs: pollTimeoutMs })
 
   return { ok: true, pane_id: newSurfaceId, name, workspace_id: newWorkspaceId }
