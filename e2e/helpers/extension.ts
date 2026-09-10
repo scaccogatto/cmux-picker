@@ -251,6 +251,8 @@ export async function launchExtension(opts: {
   hookSessions?: HookSessionFixture[]
   installHost?: boolean
   html?: string
+  /** Record the whole context to a .webm in this directory; the viewport is pinned to the same size */
+  recordVideo?: { dir: string; size: { width: number; height: number } }
 }): Promise<Harness> {
   // Assert that the extension is built
   const dist = fileURLToPath(new URL('../../dist/', import.meta.url))
@@ -329,6 +331,9 @@ export async function launchExtension(opts: {
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
+    // Video is opt-in (the demo capture); pinning the viewport to the recording
+    // size keeps the frames free of letterboxing.
+    ...(opts.recordVideo ? { recordVideo: opts.recordVideo, viewport: opts.recordVideo.size } : {}),
   })
 
   // Setup route for test page

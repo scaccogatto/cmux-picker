@@ -43,6 +43,7 @@
     "demo": "node demo/serve.mjs",
     "e2e": "playwright test",
     "store-assets": "STORE_ASSETS=1 playwright test e2e/store-assets.spec.ts",
+    "demo:gif": "DEMO_GIF=1 playwright test e2e/demo-gif.spec.ts",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "engines": {

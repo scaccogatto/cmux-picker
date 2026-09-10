@@ -10,3 +10,6 @@ key.pem
 
 # release zips
 *.zip
+
+# demo GIF capture scratch (npm run demo:gif)
+.demo-capture/
