@@ -57,9 +57,13 @@ export function devWorkspaceLabel(state: LiveState): string | null {
 /// Preselect a target agent: last used surface, then last used session, then a live agent in the
 /// current workspace, then any focused agent, then the first selectable agent
 export function pickAgent(state: LiveState, last: { pane_id: string; session: string | null } | null): string | null {
+  // Only rows cmux has bound an agent session to are preselected. An untracked
+  // terminal stays in the list and can be chosen deliberately, but is never the
+  // default: sending a prompt to a plain shell submits it as a command line, and
+  // the composed text carries page markup the shell would expand.
   const selectable = groupAgents(state)
     .flatMap((g) => g.agents)
-    .filter((a) => a.agent_status !== 'blocked')
+    .filter((a) => a.agent_status !== 'blocked' && a.session !== null)
 
   const byPane = last !== null ? selectable.find((a) => a.pane_id === last.pane_id) : undefined
   if (byPane !== undefined) return byPane.pane_id

@@ -444,8 +444,15 @@ describe('host smoke test', () => {
     fake = undefined
   })
 
-  const hostPath = fileURLToPath(new URL('./dist/host.js', import.meta.url))
+  // The real build output at the repo root (two levels up from src/__tests__/), not a path
+  // under this test directory: that path never existed, which used to make it.skipIf skip
+  // this silently. This is the only test that exercises the real host binary over real
+  // stdio frames, so a loud "run the build" beats a quiet pass.
+  const hostPath = fileURLToPath(new URL('../../dist/host.js', import.meta.url))
   const shouldRun = existsSync(hostPath)
+  if (!shouldRun) {
+    console.warn(`[native.spec] skipping host smoke test: ${hostPath} does not exist - run "npm run build" first`)
+  }
 
   it.skipIf(!shouldRun)('spawned host process can handle framed messages', async () => {
     const { spawn } = await import('node:child_process')
@@ -462,40 +469,34 @@ describe('host smoke test', () => {
 
     const messageFrame = encodeFrame({ id: '1', method: 'state', params: {} })
 
-    // Collect stdout
-    const chunks: Buffer[] = []
-    await new Promise<void>((resolvePromise, reject) => {
-      proc.stdout?.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
+    // Decode frames as stdout arrives, closing stdin only once a full reply frame has
+    // decoded - not on a fixed timer racing process startup. A slow box can easily push
+    // past a guessed delay, closing stdin (which makes the host process.exit(0)) before
+    // the reply is written, and the test would then hang on a stdout that never ends.
+    const messages = await new Promise<unknown[]>((resolvePromise, reject) => {
+      let buffer = Buffer.alloc(0)
 
-      proc.stdout?.on('end', () => {
-        resolvePromise()
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        buffer = Buffer.concat([buffer, chunk])
+        const decoded = decodeFrames(buffer)
+        if (decoded.messages.length > 0) {
+          proc.stdin?.end()
+          resolvePromise(decoded.messages)
+        }
       })
 
       proc.on('error', reject)
       proc.on('exit', (code) => {
-        if (code !== 0) reject(new Error(`process exited with code ${code}`))
+        if (code !== 0 && code !== null) reject(new Error(`process exited with code ${code}`))
       })
 
-      // Send the request
       proc.stdin?.write(messageFrame)
 
-      // Wait a moment for processing, then close stdin
-      setTimeout(() => {
-        proc.stdin?.end()
-      }, 100)
-
-      // Set a timeout to fail if no response
       setTimeout(() => {
         proc.kill()
         reject(new Error('timeout waiting for response'))
       }, 5000)
     })
-
-    // Decode the response
-    const responseBuffer = Buffer.concat(chunks)
-    const { messages } = decodeFrames(responseBuffer)
 
     expect(messages).toHaveLength(1)
     const reply = messages[0] as Record<string, unknown>

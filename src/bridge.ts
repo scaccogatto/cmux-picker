@@ -414,7 +414,9 @@ export async function getState(
         if (!workspace) continue
 
         const workspaceId = str(workspace.id) ?? ''
-        workspaceRows.push(toWorkspaceRow(workspace))
+        // selected is per window: with two cmux windows open both would claim focus,
+        // so the flag comes from the one workspace the tree reports as active.
+        workspaceRows.push({ ...toWorkspaceRow(workspace), focused: workspaceId === focusedWorkspaceId })
 
         const sidebarWorkspace = sidebarWorkspaces.get(workspaceId) ?? null
         if (isRemoteWorkspace(sidebarWorkspace)) continue
@@ -426,14 +428,15 @@ export async function getState(
           if (surface.type !== 'terminal') continue
 
           const surfaceId = str(surface.id) ?? ''
-          agentRows.push(
-            toAgentRow(surface, {
+          agentRows.push({
+            ...toAgentRow(surface, {
               workspaceId,
               branch,
               workspaceCwd,
               hookSession: hookSessions.get(surfaceId) ?? null,
             }),
-          )
+            focused: surfaceId === focusedPaneId,
+          })
         }
       }
     }
@@ -493,6 +496,23 @@ export async function cleanupAttachments(dir: string, maxAgeMs = 86400000): Prom
 }
 
 /**
+ * Removes C0 control bytes from the composed prompt, keeping newline and tab.
+ *
+ * The text is delivered as a keystroke stream, and parts of it come from the
+ * page: a source hint is whatever a locator attribute says, and the inline
+ * branch carries the element's markup. An ESC byte in there could close cmux's
+ * bracketed-paste region mid-payload and turn the remainder into typed input.
+ * cmux 0.64.22 was observed to replace such bytes itself (a probe pasting
+ * ESC[201~ came out the other side as a space), but that is undocumented
+ * behaviour of another program: this is the guarantee this repository can make
+ * on its own.
+ */
+export function stripControlBytes(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
+}
+
+/**
  * Composes the prompt for a validated request and sends it to cmux via
  * terminal.paste, writing an attachment file when the rendered snippet is
  * too large to inline and, when a screenshot PNG was provided, writing it to
@@ -544,7 +564,7 @@ export async function postPrompt(
     await request(
       opts.socketPath,
       'terminal.paste',
-      { workspace_id: context.workspaceId, surface_id: body.target, text, submit_key: 'return' },
+      { workspace_id: context.workspaceId, surface_id: body.target, text: stripControlBytes(text), submit_key: 'return' },
       undefined,
       reqOpts,
     ),
@@ -694,6 +714,15 @@ export async function spawnAgent(
   ])
   const { workspaceId: focusedWorkspaceId, surfaceId: focusedSurfaceId } = findFocusedIds(tree)
 
+  // getState never lists agents in a remote workspace, because the attachment and
+  // screenshot files the prompt references are written on this Mac. Spawning into
+  // one would produce an agent that can never receive a prompt, after a 60s wait
+  // for a hook binding the remote machine writes to its own store.
+  const focusedSidebar = focusedWorkspaceId ? (sidebarWorkspaceMap(sidebar).get(focusedWorkspaceId) ?? null) : null
+  if (isRemoteWorkspace(focusedSidebar)) {
+    throw new CmuxError('surface_unavailable', 'the focused cmux workspace is remote, spawn a local one instead')
+  }
+
   let newSurfaceId: string
   let newWorkspaceId: string | null
 
@@ -727,12 +756,16 @@ export async function spawnAgent(
     const path = join(dirname(root), `${basename(root)}-${name}`)
     const branch = body.branch ?? name
 
-    const branchExists = await git(['rev-parse', '--verify', branch], root).then(
+    // refs/heads/, not a bare name: rev-parse --verify also succeeds for a tag, and
+    // `worktree add <path> <tag>` detaches HEAD, so the agent's commits would sit on
+    // no branch. The trailing -- keeps a name starting with a dash from being read
+    // as a git option.
+    const branchExists = await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], root).then(
       () => true,
       () => false,
     )
 
-    await git(branchExists ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path], root)
+    await git(branchExists ? ['worktree', 'add', '--', path, branch] : ['worktree', 'add', '-b', branch, '--', path], root)
 
     const createResult = obj(
       await request(

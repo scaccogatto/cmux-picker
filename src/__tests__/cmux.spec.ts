@@ -196,6 +196,30 @@ describe('resolvePassword', () => {
   })
 })
 
+describe('request over a chunked socket', () => {
+  it('decodes a reply whose multi-byte character is split across two chunks', async () => {
+    const server = createServer((socket) => {
+      socket.on('data', (chunk: Buffer) => {
+        const id = (JSON.parse(chunk.toString('utf8').split('\n')[0] ?? '{}') as { id: string }).id
+        const line = Buffer.from(JSON.stringify({ id, ok: true, result: { root: '/Users/jos\u00e9/app' } }) + '\n', 'utf8')
+        const cut = line.indexOf(0xc3) + 1 // between the two bytes of the e-acute
+        socket.write(line.subarray(0, cut))
+        setTimeout(() => socket.write(line.subarray(cut)), 10)
+      })
+    })
+    const dir = mkdtempSync(join(tmpdir(), 'cmux-chunk-'))
+    const socketPath = join(dir, 's.sock')
+    await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()))
+
+    try {
+      const result = await request(socketPath, 'extension.sidebar.snapshot', {})
+      expect(result).toEqual({ root: '/Users/jos\u00e9/app' })
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+})
+
 describe('httpStatus', () => {
   it.each([
     ['access_denied', 403],

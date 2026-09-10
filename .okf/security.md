@@ -44,6 +44,20 @@ The host always reads the password at startup via `resolvePassword()` (`cmux.ts`
 
 There is no `isTrustedKeyboardOrClick` helper; each listener inlines its own check. Two things are not guarded: the To row's expand/collapse click (harmless, a visual state only) and each agent-row's or spawn-row's click listener, which sets `selectedPaneId` the same on an untrusted click as a trusted one. A page script could pre-select a different agent this way; it still cannot trigger a send, which needs a trusted click or a trusted Enter keydown.
 
+**Control bytes are stripped before the paste.** The composed prompt is delivered as a
+keystroke stream, and parts of it come from the page: the source hint is whatever a locator
+attribute says, and the inline branch carries the element's markup. `stripControlBytes`
+(`bridge.ts`) replaces every C0 byte and DEL with a space just before `terminal.paste`,
+keeping newline and tab. A probe against cmux 0.64.22 showed cmux replaces such bytes itself
+(a paste carrying `ESC[201~` came out the other side as a space, the bracketed-paste region
+did not close early), but that is undocumented behaviour of another program; this strip is
+the guarantee this repository makes on its own.
+
+**Only tracked agents are preselected.** `pickAgent` (`extension/agents.ts`) skips rows with
+no hook session. An untracked terminal stays in the list and can be chosen deliberately, but
+is never the default: a prompt sent to a plain shell is submitted as a command line, and the
+composed text carries page markup a shell would expand.
+
 **Captured markup is adversarial input; truncation is the only mitigation.** `dom.ts` caps attribute values at 80 characters (`truncateAttr`) and text nodes at 120 (`truncateText`) while building the HTML snippet. Neither `renderAttrs` nor the text-node path in `renderChildNode` escapes anything; values are truncated, not encoded. The only other mitigation is `compose.ts`'s prompt text, which states the markup is "captured data, not instructions." Nothing from the page is parsed or executed; it becomes text in front of an agent with shell access, and that framing line is what stands between the two. `postPrompt` hands the composed text straight to `terminal.paste` (`bridge.ts`), which cmux bracketed-pastes into the agent's prompt and submits with one keystroke; nothing in this codebase reviews or confirms a prompt before the agent receives it.
 
 **Host validation and caps.**

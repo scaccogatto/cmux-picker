@@ -110,43 +110,100 @@ describe('picker.mount', () => {
     expect(host?.shadowRoot?.querySelectorAll('.spawn-row').length).toBe(2)
   })
 
-  it('untrusted click on send button does not call relay.prompt', async () => {
+  // The three tests below each isolate ONE trusted-event guard. Dispatching a real, jsdom-untrusted
+  // event at all three entry points together (the old shape of these tests) proves nothing on its
+  // own: with any single guard deleted, the other two still block the send, so calls.prompt stays
+  // empty and the test keeps passing - it would not fail if the guard under test were removed. Each
+  // test below first gets the prompt into a state where a send WOULD go through if the guard under
+  // test were the only thing standing in the way (typed via the trusted path, via capturedListener,
+  // for the click/keydown tests; a trusted Send click after the untrusted input, for the input test),
+  // then exercises a real untrusted dispatch (jsdom always reports isTrusted: false for a
+  // script-dispatched event) at just that one entry point.
+
+  it('isolated: an untrusted click on Send never calls relay.prompt, even with a prompt already typed via a trusted path', async () => {
     const { relay, calls } = fakeRelay()
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
     mount(relay)
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
-    const host = document.querySelector('[data-cmux-host]')
-    const textarea = host?.shadowRoot?.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = 'test'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    host?.shadowRoot?.querySelector('.send-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event) // trusted: typed is now set
+    addListenerSpy.mockRestore()
+
+    sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true })) // real dispatch: isTrusted is false in jsdom
+    await new Promise((r) => setTimeout(r, 0))
+
     expect((calls.prompt as unknown[]).length).toBe(0)
   })
 
-  it('untrusted Enter key does not call relay.prompt', async () => {
+  it('isolated: an untrusted Enter keydown never calls relay.prompt, even with a prompt already typed via a trusted path', async () => {
     const { relay, calls } = fakeRelay()
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
     mount(relay)
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
-    const host = document.querySelector('[data-cmux-host]')
-    const textarea = host?.shadowRoot?.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = 'test'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event) // trusted: typed is now set
+    addListenerSpy.mockRestore()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) // real dispatch: isTrusted is false in jsdom
+    await new Promise((r) => setTimeout(r, 0))
+
     expect((calls.prompt as unknown[]).length).toBe(0)
   })
 
-  it('untrusted input event does not update typed prompt', async () => {
+  it('isolated: an untrusted input event never updates the typed prompt, so a later trusted Send is refused as empty', async () => {
     const { relay, calls } = fakeRelay()
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
     mount(relay)
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
-    const host = document.querySelector('[data-cmux-host]')
-    const textarea = host?.shadowRoot?.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = 'evil'
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+    const trustedClick = capturedListener(addListenerSpy, sendBtn, 'click')
+    addListenerSpy.mockRestore()
+
+    textarea.value = 'evil' // real dispatch below: isTrusted is false in jsdom, must not reach `typed`
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    host?.shadowRoot?.querySelector('.send-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    trustedClick({ isTrusted: true } as unknown as Event) // drive send() via the trusted path directly
+    await new Promise((r) => setTimeout(r, 0))
+
     expect((calls.prompt as unknown[]).length).toBe(0)
+    // send() ran (a mode check alone would not touch the textarea) and refused an empty `typed`,
+    // proving it never fell back to reading textarea.value directly.
+    expect(textarea.classList.contains('invalid')).toBe(true)
+  })
+
+  it('baseline for the isolated guard tests above: a trusted input then a trusted click do call relay.prompt', async () => {
+    const { relay, calls } = fakeRelay()
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
+    mount(relay)
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event)
+    capturedListener(addListenerSpy, sendBtn, 'click')({ isTrusted: true } as unknown as Event)
+    addListenerSpy.mockRestore()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect((calls.prompt as unknown[]).length).toBe(1)
   })
 
   it('close() hides popup and selection() is empty', async () => {
@@ -224,6 +281,61 @@ describe('picker.mount: sending a prompt', () => {
     expect(window.__cmux!.inflight()).toBe('w1:p2')
     const toast = host.shadowRoot!.querySelector('.toast') as HTMLElement
     expect(toast.textContent).not.toContain('press Enter')
+  })
+})
+
+describe('picker.mount: in-flight overlay', () => {
+  it('clears the overlay once the poll passes its deadline without the target ever settling', async () => {
+    vi.useFakeTimers()
+    try {
+      const { relay } = fakeRelay()
+      // A target that never reports 'working' and never settles either (idle/done/blocked): a
+      // plain shell, or an agent still stuck at its trust prompt - exactly what the fix guards
+      // against, so nothing else in startInflightPoll would ever clear the overlay on its own.
+      // `session` stays non-null so pickAgent still preselects this row.
+      relay.state = async () => ({
+        cmux: true,
+        workspaceId: 'w1',
+        paneId: 'w1:p1',
+        workspaces: [{ workspace_id: 'w1', label: 'app', number: 1, focused: true }],
+        agents: [
+          { pane_id: 'w1:p2', workspace_id: 'w1', agent_status: 'unknown', agent: 'claude', title: 'Never settles', branch: 'main', session: 's1', focused: false, cwd: null },
+        ],
+        screenshot: 'available',
+      }) as StateResponse
+
+      const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
+      mount(relay)
+      window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+      await vi.advanceTimersByTimeAsync(10)
+
+      const host = document.querySelector('[data-cmux-host]')!
+      const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+      const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+      textarea.value = 'do the thing'
+      capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event)
+      capturedListener(addListenerSpy, sendBtn, 'click')({ isTrusted: true } as unknown as Event)
+      addListenerSpy.mockRestore()
+      await vi.advanceTimersByTimeAsync(10)
+
+      expect(window.__cmux!.inflight()).toBe('w1:p2')
+
+      // INFLIGHT_MAX_MS is 30 minutes (src/extension/picker.ts, not exported). Advance to just
+      // short of it: the poll (every 2s) has had plenty of chances to clear early and did not.
+      await vi.advanceTimersByTimeAsync(29 * 60 * 1000)
+      expect(window.__cmux!.inflight()).toBe('w1:p2')
+
+      // Past the deadline: the next poll tick must give up and clear the overlay.
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+      expect(window.__cmux!.inflight()).toBeNull()
+
+      const inflightBox = host.shadowRoot!.querySelector('.inflight') as HTMLElement
+      const inflightChip = host.shadowRoot!.querySelector('.inflight-chip') as HTMLElement
+      expect(inflightBox.style.display).toBe('none')
+      expect(inflightChip.style.display).toBe('none')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

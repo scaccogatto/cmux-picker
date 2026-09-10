@@ -112,6 +112,10 @@ export function request(
   return new Promise((resolvePromise, reject) => {
     const id = randomUUID()
     const socket = net.createConnection(socketPath)
+    // Decode as UTF-8 across chunk boundaries: a reply larger than one read can
+    // split a multi-byte character, and decoding each Buffer on its own would
+    // corrupt it (a path like /Users/jose/... loses its accented byte pair).
+    socket.setEncoding('utf8')
     const password = opts?.password
     let buffer = ''
     let settled = false
@@ -141,8 +145,8 @@ export function request(
       }
     })
 
-    socket.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf8')
+    socket.on('data', (chunk: string) => {
+      buffer += chunk
 
       if (authPending) {
         const authIdx = buffer.indexOf('\n')

@@ -161,7 +161,7 @@ describe('pickAgent', () => {
     const noIdle = state({
       workspaceId: 'w1',
       workspaces: [workspace({ workspace_id: 'w1', number: 1 })],
-      agents: [agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working' })],
+      agents: [agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working', session: 's1' })],
     })
     expect(pickAgent(noIdle, null)).toBe(SF1)
   })
@@ -171,8 +171,8 @@ describe('pickAgent', () => {
       workspaceId: 'wX',
       workspaces: [workspace({ workspace_id: 'w1', number: 1 })],
       agents: [
-        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working', focused: false }),
-        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'working', focused: true }),
+        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working', session: 's1', focused: false }),
+        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'working', session: 's2', focused: true }),
       ],
     })
     expect(pickAgent(noWorkspaceMatch, null)).toBe(SF2)
@@ -183,8 +183,8 @@ describe('pickAgent', () => {
       workspaceId: 'wX',
       workspaces: [workspace({ workspace_id: 'w1', number: 1 })],
       agents: [
-        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'working', focused: false }),
-        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working', focused: false }),
+        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'working', session: 's2', focused: false }),
+        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'working', session: 's1', focused: false }),
       ],
     })
     expect(pickAgent(nothingMatches, null)).toBe(SF2)
@@ -192,9 +192,31 @@ describe('pickAgent', () => {
 
   it('returns null when there are no selectable agents', () => {
     const allBlocked = state({
-      agents: [agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'blocked' })],
+      agents: [agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'blocked', session: 's1' })],
     })
     expect(pickAgent(allBlocked, null)).toBeNull()
+  })
+
+  it('never preselects a terminal cmux has not bound an agent session to, even when it is the only non-blocked row', () => {
+    const untracked = state({
+      workspaceId: 'w1',
+      workspaces: [workspace({ workspace_id: 'w1', number: 1 })],
+      agents: [
+        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'blocked', session: 's1' }),
+        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'idle', session: null }),
+      ],
+    })
+    expect(pickAgent(untracked, null)).toBeNull()
+
+    const boundToSession = state({
+      workspaceId: 'w1',
+      workspaces: [workspace({ workspace_id: 'w1', number: 1 })],
+      agents: [
+        agent({ pane_id: SF1, workspace_id: 'w1', agent_status: 'blocked', session: 's1' }),
+        agent({ pane_id: SF2, workspace_id: 'w1', agent_status: 'idle', session: 's2' }),
+      ],
+    })
+    expect(pickAgent(boundToSession, null)).toBe(SF2)
   })
 })
 

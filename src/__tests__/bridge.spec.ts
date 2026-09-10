@@ -11,6 +11,7 @@ import {
   postPrompt,
   readHookSessions,
   spawnAgent,
+  stripControlBytes,
   toAgentRow,
   toWorkspaceRow,
   writeAttachment,
@@ -232,6 +233,24 @@ describe('absolutizeHint', () => {
     expect(absolutizeHint('file.ts:1:1', [join(tmp, 'a'), join(tmp, 'b')])).toBe(
       `${join(tmp, 'b', 'file.ts')}:1:1`,
     )
+  })
+})
+
+describe('stripControlBytes', () => {
+  it('replaces an ESC byte with a space', () => {
+    expect(stripControlBytes('before\u001b[201~after')).toBe('before [201~after')
+  })
+
+  it('keeps newline and tab as-is', () => {
+    expect(stripControlBytes('line one\nline two\tindented')).toBe('line one\nline two\tindented')
+  })
+
+  it('strips DEL to a space', () => {
+    expect(stripControlBytes('a\u007fb')).toBe('a b')
+  })
+
+  it('leaves ordinary text untouched', () => {
+    expect(stripControlBytes('Make it red - /repo/src/x.ts:1:1')).toBe('Make it red - /repo/src/x.ts:1:1')
   })
 })
 
@@ -474,32 +493,83 @@ describe('getState', () => {
     expect(state.agents.map((a) => a.pane_id).sort()).toEqual(['surf1', 'surf2'])
   })
 
-  it('filters out a workspace with remote.enabled true, but keeps a local workspace whose remote_connection_state is "disconnected"', async () => {
+  // isRemoteWorkspace has two independent signals (remote.enabled === true, or a non-empty
+  // remote.destination) either of which alone marks a workspace remote. A fixture that sets both
+  // together on the same workspace only ever exercises the `enabled` short-circuit: a regression
+  // that stopped checking `enabled` entirely would be masked by `destination` still being read, and
+  // the test would keep passing. Each signal gets its own test below, isolated from the other.
+
+  it('filters out a workspace via remote.enabled alone (destination absent)', async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
 
     fake = await startFakeCmux({
       'system.capabilities': () => CAPABILITIES,
-      'system.tree': () =>
-        treeWith([
-          { id: 'w1', index: 0, title: 'local', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] },
-          { id: 'w2', index: 1, title: 'remote box', panes: [pane([surfaceNode('surf2')])] },
-        ]),
+      'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'remote box', selected: true, panes: [pane([surfaceNode('surf1')])] }]),
       'extension.sidebar.snapshot': () => ({
-        workspaces: [
-          // Real cmux: an ordinary LOCAL workspace still reports remote_connection_state
-          // "disconnected" - this is the defect-5 trap, must NOT be read as remote.
-          sidebarWorkspace('w1', { currentDirectory: '/proj', remoteConnectionState: 'disconnected', remote: { enabled: false } }),
-          sidebarWorkspace('w2', { currentDirectory: '/remote/proj', remoteConnectionState: 'connected', remote: { enabled: true, destination: 'ssh://remote-box' } }),
-        ],
+        workspaces: [sidebarWorkspace('w1', { currentDirectory: '/remote/proj', remote: { enabled: true } })],
       }),
     })
 
     const state = await getState(fake.socketPath, { stateDir })
     if (state.cmux !== true) throw new Error('expected cmux:true')
-    // Both workspaces are still listed...
-    expect(state.workspaces.map((w) => w.workspace_id)).toEqual(['w1', 'w2'])
-    // ...but only the local workspace's surface becomes an agent row
+    // The workspace is still listed...
+    expect(state.workspaces.map((w) => w.workspace_id)).toEqual(['w1'])
+    // ...but its surface never becomes an agent row
+    expect(state.agents).toEqual([])
+  })
+
+  it('filters out a workspace via a non-empty remote.destination alone (enabled false)', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+
+    fake = await startFakeCmux({
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'remote box', selected: true, panes: [pane([surfaceNode('surf1')])] }]),
+      'extension.sidebar.snapshot': () => ({
+        workspaces: [sidebarWorkspace('w1', { currentDirectory: '/remote/proj', remote: { enabled: false, destination: 'ssh://remote-box' } })],
+      }),
+    })
+
+    const state = await getState(fake.socketPath, { stateDir })
+    if (state.cmux !== true) throw new Error('expected cmux:true')
+    expect(state.workspaces.map((w) => w.workspace_id)).toEqual(['w1'])
+    expect(state.agents).toEqual([])
+  })
+
+  it('keeps a local workspace whose remote_connection_state is "disconnected" (the live trap: that field is not the local/remote signal)', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+
+    fake = await startFakeCmux({
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'local', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
+      'extension.sidebar.snapshot': () => ({
+        // Real cmux: an ordinary LOCAL workspace still reports remote_connection_state
+        // "disconnected" - this is the defect-5 trap, must NOT be read as remote.
+        workspaces: [sidebarWorkspace('w1', { currentDirectory: '/proj', remoteConnectionState: 'disconnected', remote: { enabled: false } })],
+      }),
+    })
+
+    const state = await getState(fake.socketPath, { stateDir })
+    if (state.cmux !== true) throw new Error('expected cmux:true')
     expect(state.agents.map((a) => a.pane_id)).toEqual(['surf1'])
+  })
+
+  it('strips a leading Private-Use-Area icon glyph from branch_summary', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+
+    fake = await startFakeCmux({
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': () =>
+        treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
+      'extension.sidebar.snapshot': () => ({
+        // U+E0A0 is a Private-Use-Area codepoint (a powerline-style branch glyph); it and the
+        // space after it must be stripped, leaving just "main".
+        workspaces: [sidebarWorkspace('w1', { currentDirectory: '/proj', branchSummary: '\ue0a0 main' })],
+      }),
+    })
+
+    const state = await getState(fake.socketPath, { stateDir })
+    if (state.cmux !== true) throw new Error('expected cmux:true')
+    expect(state.agents[0]?.branch).toBe('main')
   })
 
   it('derives branch from git_branches[0] when branch_summary is null', async () => {
@@ -734,6 +804,100 @@ describe('postPrompt', () => {
     const files = await readdir(attachmentDir)
     expect(files.some((f) => f.endsWith('.png'))).toBe(true)
   })
+
+  it('strips ESC control bytes from the composed prompt before it reaches terminal.paste (fix A, end to end)', async () => {
+    fake = await startFakeCmux({
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: true }),
+    })
+    const attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    // ESC in both places the doc comment on stripControlBytes names as untrusted: the source
+    // hint (a raw locator attribute) and the inline element markup.
+    const escElement = {
+      ...element,
+      hint: 'src/x.ts:1:1\u001b[201~',
+      html: '<button data-cmux-picked="">\u001b[201~evil</button>',
+    }
+
+    const result = await postPrompt(
+      { target: 'surf1', prompt: 'test', element: escElement },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
+    )
+
+    expect(result.ok).toBe(true)
+    const text = fake.received.find((r) => r.method === 'terminal.paste')?.params.text as string
+    expect(text).not.toContain('\u001b')
+    expect(text).toContain('Focus: /repo/src/x.ts:1:1 [201~')
+    expect(text).toContain('<button data-cmux-picked=""> [201~evil</button>')
+  })
+
+  it('inlines extras with their data-cmux-picked numbering when under inlineMaxChars', async () => {
+    fake = await startFakeCmux({
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: true }),
+    })
+    const attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const extra = {
+      url: 'http://localhost:3000/page',
+      viewport: { w: 1440, h: 900 },
+      hint: 'src/components/Link.tsx:5:1',
+      path: 'body > main > a.link',
+      rect: { x: 10, y: 20, w: 100, h: 30 },
+      html: '<a class="link" data-cmux-picked="">Team</a>',
+      styles: { display: 'inline' },
+    }
+
+    const result = await postPrompt(
+      { target: 'surf1', prompt: 'x', element, extras: [extra] },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
+    )
+
+    expect(result.ok).toBe(true)
+    const text = fake.received.find((r) => r.method === 'terminal.paste')?.params.text as string
+    expect(text).toContain('Element 2: body > main > a.link  100x30 at (10,20)')
+    expect(text).toContain('<a class="link" data-cmux-picked="2">Team</a>')
+
+    const files = await readdir(attachmentDir)
+    expect(files).toHaveLength(0)
+  })
+
+  it('writes extras into the attachment file and references it instead of inlining, when over inlineMaxChars', async () => {
+    fake = await startFakeCmux({
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: true }),
+    })
+    const attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const extra = {
+      url: 'http://localhost:3000/page',
+      viewport: { w: 1440, h: 900 },
+      hint: null,
+      path: 'body > main > button.icon',
+      rect: { x: 200, y: 40, w: 24, h: 24 },
+      html: '<button class="icon" data-cmux-picked="">x</button>',
+      styles: {},
+    }
+
+    const result = await postPrompt(
+      { target: 'surf1', prompt: 'make it red', element, extras: [extra] },
+      { socketPath: fake.socketPath, inlineMaxChars: 5, roots: ['/repo'], attachmentDir },
+    )
+
+    expect(result.ok).toBe(true)
+    const text = fake.received.find((r) => r.method === 'terminal.paste')?.params.text as string
+    expect(text).toContain('Details:')
+    expect(text).not.toContain('Element 2:')
+    expect(text).not.toContain('data-cmux-picked="2"')
+
+    const files = await readdir(attachmentDir)
+    const mdFile = files.find((f) => f.endsWith('.md'))
+    expect(mdFile).toBeDefined()
+    const written = readFileSync(join(attachmentDir, mdFile as string), 'utf8')
+    expect(written).toContain('## Element 2')
+    expect(written).toContain('<button class="icon" data-cmux-picked="2">x</button>')
+  })
 })
 
 describe('writeAttachment', () => {
@@ -846,6 +1010,24 @@ describe('spawnAgent', () => {
     expect(methods.indexOf('surface.send_text')).toBeGreaterThan(methods.lastIndexOf('surface.read_text') - 1)
   })
 
+  it('refuses to spawn into a remote workspace instead of stranding an agent there', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+
+    fake = await startFakeCmux({
+      'system.tree': () =>
+        treeWith([{ id: 'w1', index: 0, title: 'cloud', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
+      'extension.sidebar.snapshot': () => ({
+        workspaces: [{ ...sidebarWorkspace('w1', { currentDirectory: '/repo' }), remote: { enabled: true, destination: 'ssh://box' } }],
+      }),
+      'surface.split': () => ({ surface_id: 'surf-new' }),
+    })
+
+    await expect(spawnAgent({ mode: 'here' }, { socketPath: fake.socketPath, stateDir, ...fastPoll })).rejects.toMatchObject({
+      code: 'surface_unavailable',
+    })
+    expect(fake.received.map((r) => r.method)).not.toContain('surface.split')
+  })
+
   it('mode here honors an explicit name', async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
     await writeHookStore(stateDir, 'claude', { surfaceId: 'surf-new', sessionId: 'sess1', lifecycle: 'idle' })
@@ -905,8 +1087,8 @@ describe('spawnAgent', () => {
     expect(result.pane_id).toBe('surf-new')
     expect(result.workspace_id).toBe('w2')
 
-    expect(calls[0]).toEqual({ args: ['rev-parse', '--verify', 'feature-x'], cwd: '/home/me/app' })
-    expect(calls[1]).toEqual({ args: ['worktree', 'add', '-b', 'feature-x', '/home/me/app-feature-x'], cwd: '/home/me/app' })
+    expect(calls[0]).toEqual({ args: ['rev-parse', '--verify', '--quiet', 'refs/heads/feature-x'], cwd: '/home/me/app' })
+    expect(calls[1]).toEqual({ args: ['worktree', 'add', '-b', 'feature-x', '--', '/home/me/app-feature-x'], cwd: '/home/me/app' })
 
     const created = fake.received.find((r) => r.method === 'workspace.create')
     expect(created?.params).toEqual({ title: 'feature-x', cwd: '/home/me/app-feature-x', focus: false })
@@ -943,8 +1125,8 @@ describe('spawnAgent', () => {
 
     await spawnAgent({ mode: 'worktree', branch: 'existing-branch', name: 'wt' }, { socketPath: fake.socketPath, stateDir, git, ...fastPoll })
 
-    expect(calls[0]).toEqual({ args: ['rev-parse', '--verify', 'existing-branch'], cwd: '/home/me/app' })
-    expect(calls[1]).toEqual({ args: ['worktree', 'add', '/home/me/app-wt', 'existing-branch'], cwd: '/home/me/app' })
+    expect(calls[0]).toEqual({ args: ['rev-parse', '--verify', '--quiet', 'refs/heads/existing-branch'], cwd: '/home/me/app' })
+    expect(calls[1]).toEqual({ args: ['worktree', 'add', '--', '/home/me/app-wt', 'existing-branch'], cwd: '/home/me/app' })
   })
 
   it('throws agent_not_ready when the hook store never binds the new surface within the poll timeout', async () => {

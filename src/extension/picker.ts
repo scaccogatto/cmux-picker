@@ -47,6 +47,8 @@ const MAX_LINES = 60
  * (still 'idle' from before the paste) status well after the prompt went out.
  */
 const INFLIGHT_STALE_GRACE_MS = 15000
+/** How long the in-flight outline waits for a settle before giving up and clearing */
+const INFLIGHT_MAX_MS = 30 * 60 * 1000
 
 /** Debug/bench API exposed on window.__cmux */
 export interface CmuxApi {
@@ -801,8 +803,16 @@ export function mount(relay: Relay): void {
     let sawWorking = false
 
     inflightPollTimer = setInterval(() => {
-      if (inflightPaneId !== paneId || Date.now() - startedAt > 30 * 60 * 1000) {
+      if (inflightPaneId !== paneId) {
         stopInflightPoll()
+        return
+      }
+      // Give up rather than leave the outline painted forever: a target cmux never
+      // reports as working (a plain shell, or an agent still at its trust prompt)
+      // would otherwise keep the dashed box and chip over the element until reload.
+      if (Date.now() - startedAt > INFLIGHT_MAX_MS) {
+        stopInflightPoll()
+        clearInflight()
         return
       }
       void (async () => {

@@ -56,12 +56,22 @@ export function encodeFrame(value: unknown): Buffer {
 export function createHandler(opts: {
   socketPath: string
   attachmentDir: string
-  /** Socket-control password; defaults to resolvePassword() (env, else cmux's password file) */
+  /**
+   * Socket-control password. Omit the property (leave it `undefined`) to resolve it via
+   * resolvePassword() (env, else cmux's password file); pass `null` explicitly to mean "no
+   * password", without falling back. `??` would treat those two the same, so this checks
+   * for `undefined` specifically rather than using it.
+   */
   password?: string | null
 }): (message: unknown) => Promise<{ id: unknown; status: number; body: unknown }> {
-  const password = opts.password ?? resolvePassword()
+
+  // Resolved per request, not once per process: a user told "set cmux to Password
+  // mode" writes the password file while this host is already running, and a value
+  // cached at startup would keep refusing them until the port's idle timeout.
+  const currentPassword = (): string | null => (opts.password === undefined ? resolvePassword() : opts.password)
 
   return async (message: unknown) => {
+    const password = currentPassword()
     if (typeof message !== 'object' || message === null) {
       return { id: null, status: 400, body: { error: 'invalid_request', message: 'invalid message envelope' } }
     }
