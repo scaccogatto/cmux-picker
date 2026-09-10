@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. Conventional Commits; a release is a `v*` tag, published from CI over npm trusted publishing.
 
-## [Unreleased]
+## [0.1.0] - 2026-09-10
 
 ### Features
 

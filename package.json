@@ -1,6 +1,6 @@
 {
   "name": "cmux-picker",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Pick a DOM element on any page in Chrome and send it, with a prompt, to a coding agent running in cmux.",
   "type": "module",
   "author": {

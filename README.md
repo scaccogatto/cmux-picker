@@ -6,7 +6,7 @@
 
 <sub>Ctrl+B, hover, click, type: the prompt lands as a normal turn in the cmux agent surface you pick.</sub>
 
-[![CI](https://github.com/scaccogatto/cmux-picker/actions/workflows/ci.yml/badge.svg)](https://github.com/scaccogatto/cmux-picker/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/scaccogatto/cmux-picker/actions/workflows/ci.yml/badge.svg)](https://github.com/scaccogatto/cmux-picker/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/cmux-picker)](https://www.npmjs.com/package/cmux-picker) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <img src=".github/demo.gif" width="800" alt="cmux-picker demo: Ctrl+B on a page in Chrome, click an element, type the fix, pick which live cmux agent gets it, the outline waits until the agent finishes">
 
@@ -18,10 +18,9 @@ Spotting a bug in the browser and fixing it costs a context switch: inspect the 
 
 ```sh
 # macOS only. First, in cmux: Settings > Automation, switch off "cmux processes only".
-git clone https://github.com/scaccogatto/cmux-picker && cd cmux-picker
-npm install && npm run build      # dist/extension (unpacked) + dist/host.js
-node dist/cli.js install-host     # registers the native messaging host with Chrome
-# chrome://extensions > Developer mode > Load unpacked > dist/extension, then Ctrl+B
+npm install cmux-picker         # unpacked extension at node_modules/cmux-picker/dist/extension
+npx cmux-picker install-host    # registers the native messaging host with Chrome
+# chrome://extensions > Developer mode > Load unpacked, then Ctrl+B on any page
 ```
 
 ## Why cmux-picker
@@ -44,9 +43,11 @@ node dist/cli.js install-host     # registers the native messaging host with Chr
 
    **Also enable cmux's Claude Code integration** in the same Settings window. Agent status and both spawn rows depend on it: without it every target shows `unknown`, and `+ agent here` times out waiting for cmux to bind a session.
 
-3. **Load the extension:** `npm install && npm run build` in a clone creates `dist/extension/`. Go to `chrome://extensions`, enable Developer mode, click Load unpacked and choose that directory. Not on npm and not in the Chrome Web Store yet, so building from the repo is the only route today.
+3. **Load the extension:** go to `chrome://extensions`, enable Developer mode, click Load unpacked and choose the unpacked build. Not in the Chrome Web Store yet, so it is loaded unpacked either way.
+   - **From npm:** `npm install cmux-picker`, then `node_modules/cmux-picker/dist/extension`
+   - **From a clone:** `npm install && npm run build` creates `dist/extension/`
 
-4. **Install the native host:** `node dist/cli.js install-host` (`npx cmux-picker install-host` once the package is published)
+4. **Install the native host:** `npx cmux-picker install-host` (from a clone: `node dist/cli.js install-host`)
    - Copies `host.js` to `~/.config/cmux-picker/`, writes `host.sh`, and registers the host with every Chrome and Chromium profile directory it finds, on macOS and on Linux.
    - `--socket <path>`: bake `CMUX_SOCKET_PATH` into `host.sh`, for a cmux socket at a non-default path.
    - `--extension-id <id>`: override the id derived from the bundled manifest's key (an unpacked build with another key).

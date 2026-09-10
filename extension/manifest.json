@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "cmux picker",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Pick an element on any page and send it, with a prompt, to a coding agent running in cmux.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyLERP7Brwm6+D7qdAixnl684GYFsBxsrUEVXSJY95yjHz5TYt/ou2avxrwVIEl7DCKGj+GjVAcwSf7YXp4l6vH71x2BCIKISBvmF2mJAOFc09balSfDEyE2070Vf2vCsm3Y6pGAoJI8fEPx5D5hzQXg+sxmlehM9y/3GIDiDAJWdZU8ZmhtjNdcG4jzZajVymnQDGy/kbDl7Oc0dTglkdk2L2ANzaXjhtSoJ6SeXYsHBsy7yVZRzpyIsUWEPnsNWf46UfLtCtK+PZD7rlWYUgVl5zcODceakotaZGkNNADq31wwasjQlguYrUs22CPZ35tD6peR0t1qZk4T2j0IKJQIDAQAB",
   "minimum_chrome_version": "117",
