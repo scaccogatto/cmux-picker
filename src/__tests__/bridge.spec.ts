@@ -415,6 +415,23 @@ describe('getState', () => {
     expect(state).toMatchObject({ workspaceId: 'w1', paneId: 'surf1' })
   })
 
+  it('falls back to the workspace surfaces when tree.active names a workspace but no surface', async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+
+    fake = await startFakeCmux({
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': () =>
+        treeWith(
+          [{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { selected: true })])] }],
+          { active: { workspace_id: 'w1', surface_id: null } },
+        ),
+      'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { currentDirectory: '/proj' })] }),
+    })
+
+    const state = await getState(fake.socketPath, { stateDir })
+    expect(state).toMatchObject({ workspaceId: 'w1', paneId: 'surf1' })
+  })
+
   it('marks an untracked terminal surface unknown with no hook session', async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
 

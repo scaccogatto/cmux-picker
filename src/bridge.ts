@@ -271,6 +271,22 @@ function workspaceSurfaces(workspace: Record<string, unknown>): Record<string, u
   return direct.map((s) => obj(s)).filter((s): s is Record<string, unknown> => s !== null)
 }
 
+/** The focused, else selected, surface id of one workspace in a system.tree result */
+function focusedSurfaceIdIn(tree: Record<string, unknown> | null, workspaceId: string): string | null {
+  const windows = tree && Array.isArray(tree.windows) ? tree.windows : []
+  for (const windowRaw of windows) {
+    const window = obj(windowRaw)
+    const workspaces = Array.isArray(window?.workspaces) ? window.workspaces : []
+    const workspace = workspaces.map((w) => obj(w)).find((w) => w && str(w.id) === workspaceId) ?? null
+    if (!workspace) continue
+
+    const surfaces = workspaceSurfaces(workspace)
+    const surface = surfaces.find((s) => s.focused === true) ?? surfaces.find((s) => s.selected === true) ?? null
+    return surface ? str(surface.id) : null
+  }
+  return null
+}
+
 /**
  * Finds the focused workspace id and, within it, the focused surface id in a
  * system.tree result. Prefers the tree's top-level `active` pointer
@@ -282,7 +298,12 @@ function findFocusedIds(tree: Record<string, unknown> | null): { workspaceId: st
   const active = obj(tree?.active)
   const activeWorkspaceId = active ? str(active.workspace_id) : null
   if (activeWorkspaceId) {
-    return { workspaceId: activeWorkspaceId, surfaceId: str(active?.surface_id ?? null) }
+    const activeSurfaceId = str(active?.surface_id ?? null)
+    if (activeSurfaceId !== null) return { workspaceId: activeWorkspaceId, surfaceId: activeSurfaceId }
+    // active names a workspace but no surface (focus sits on something that is not
+    // one, or cmux reports it as null): fall back to that workspace's own surfaces
+    // rather than reporting no focused surface, which would break "+ agent here"
+    return { workspaceId: activeWorkspaceId, surfaceId: focusedSurfaceIdIn(tree, activeWorkspaceId) }
   }
 
   const windows = tree && Array.isArray(tree.windows) ? tree.windows : []
@@ -555,8 +576,8 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Polls the hook session stores every intervalMs until the given surface id
- * shows up in activeSessionsBySurface (via readHookSessions), or throws
- * CmuxError('agent_not_ready', ...) after timeoutMs
+ * shows up in readHookSessions' surface map (folded from the store's
+ * sessions), or throws CmuxError('agent_not_ready', ...) after timeoutMs
  */
 async function waitForHookSession(
   stateDir: string,
