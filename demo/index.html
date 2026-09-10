@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cmux-picker demo</title>
+<style>
+  :root {
+    --bg: #f6f6f8;
+    --surface: #ffffff;
+    --border: #e2e2e7;
+    --text: #1a1a1f;
+    --muted: #6b6e78;
+    --accent: #6e56cf;
+    --accent-bg: #f1eefb;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header h1 { font-size: 26px; margin: 0 0 8px; }
+  header p { margin: 0 0 10px; color: var(--muted); max-width: 68ch; }
+  .keys { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 16px 0 18px; }
+  kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); font-family: var(--mono); font-size: 12px;
+  }
+  header .keys span { color: var(--muted); font-size: 14px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 16px;
+    margin-top: 32px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 6px; }
+  .card > p.desc { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
+  .card .sub { margin: 14px 0 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+  .expected {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    background: var(--accent-bg);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent);
+    line-height: 1.5;
+  }
+
+  [data-pick] {
+    cursor: pointer;
+    display: inline-block;
+    border: 1px dashed #b6a9ee;
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: #fbfaff;
+  }
+  [data-pick]:hover { background: var(--accent-bg); }
+  button[data-pick] { font: inherit; }
+
+  .plain-list { margin: 0; padding-left: 20px; }
+  .plain-list li { margin: 4px 0; }
+  .plain-list li[data-pick] { display: list-item; padding: 4px 8px; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .row [data-pick] { padding: 8px 12px; }
+
+  .deep-nest { padding: 10px; border: 1px dashed var(--border); border-radius: 6px; }
+  .deep-nest div { padding: 2px; }
+
+  .shape-box { display: flex; align-items: center; }
+
+  table.demo-table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 13px; }
+  table.demo-table td { border: 1px solid var(--border); padding: 4px 6px; }
+  ul.changelog { list-style: none; margin: 8px 0 0; padding: 0; max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+  ul.changelog li { display: block; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  ul.changelog li:last-child { border-bottom: none; }
+
+  .shot-block {
+    display: block;
+    padding: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #6e56cf, #ff7a59 130%);
+    color: #fff;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13.5px; }
+  footer p { max-width: 72ch; }
+
+  open-shadow-demo, closed-shadow-demo { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>cmux-picker demo</h1>
+    <p>
+      A page for exercising the element picker by hand. Load the unpacked extension
+      (<code>npm run build</code>, then <code>dist/extension/</code> at
+      <code>chrome://extensions</code>), then use it here: hover highlights the element
+      under the cursor, click picks it and opens the popup, shift+click adds more.
+    </p>
+    <div class="keys">
+      <span><kbd>Ctrl+B</kbd> arms the picker</span>
+      <span>(the toolbar icon does the same thing)</span>
+    </div>
+    <p>
+      Each card's "Expected" line describes the Focus line and path in the prompt the
+      agent receives, not the popup: the popup and hover chip show a shortened version
+      with the parenthetical stripped for width, hover either one for the full text in a
+      native tooltip. With no cmux reachable, typing a prompt and pressing Enter copies
+      the same text to your clipboard, which is the easiest way to check these by hand.
+    </p>
+  </header>
+
+  <div class="grid">
+
+    <article class="card">
+      <h2>1. No locator attribute</h2>
+      <p class="desc">Plain markup, nothing points back to a source file.</p>
+      <button type="button" data-pick>Click me</button>
+      <p class="expected">Expected: Focus: none, find by selector</p>
+    </article>
+
+    <article class="card">
+      <h2>2. data-loc on the clicked element</h2>
+      <p class="desc">The locator attribute sits directly on the element you click.</p>
+      <button type="button" data-pick data-loc="src/components/SaveButton.vue:42:6">Save changes</button>
+      <p class="expected">Expected: Focus line ends with " (data-loc)"</p>
+    </article>
+
+    <article class="card">
+      <h2>3. data-loc on an ancestor</h2>
+      <p class="desc">The locator is on a wrapper; you click a plain child inside it.</p>
+      <div data-loc="src/components/Toolbar.vue:18:2">
+        <span data-pick>Click this label</span>
+      </div>
+      <p class="expected">Expected: Focus line ends with " (data-loc, ancestor)"</p>
+    </article>
+
+    <article class="card">
+      <h2>4. data-insp-path</h2>
+      <p class="desc">A React-inspector-style locator attribute.</p>
+      <button type="button" data-pick data-insp-path="src/App.tsx:88:3">Submit</button>
+      <p class="expected">Expected: Focus line ends with " (data-insp-path)"</p>
+    </article>
+
+    <article class="card">
+      <h2>5. data-asl</h2>
+      <p class="desc">Another framework's source-locator attribute.</p>
+      <button type="button" data-pick data-asl="src/routes/+page.svelte:15:2">Continue</button>
+      <p class="expected">Expected: Focus line ends with " (data-asl)"</p>
+    </article>
+
+    <article class="card">
+      <h2>6. Precedence: two locators on one element</h2>
+      <p class="desc">
+        This element carries both data-v-inspector and data-loc.
+        SOURCE_ATTRS checks data-v-inspector first, so it wins.
+      </p>
+      <button type="button" data-pick
+        data-v-inspector="src/components/Button.vue:20:2"
+        data-loc="src/components/Button.vue:20:2">Both attributes</button>
+      <p class="expected">Expected: Focus line ends with " (data-v-inspector)", never " (data-loc)"</p>
+    </article>
+
+    <article class="card">
+      <h2>7. Selector path with an id</h2>
+      <p class="desc">A qualifying id stops the path at one segment; a non-qualifying one falls back.</p>
+      <div class="sub">Qualifying id</div>
+      <div id="build-info" data-pick>id="build-info"</div>
+      <div class="sub">Id that ID_RE rejects (starts with a digit)</div>
+      <ul class="plain-list">
+        <li>alpha</li>
+        <li id="123-not-valid" data-pick>id="123-not-valid"</li>
+        <li>gamma</li>
+      </ul>
+      <p class="expected">Expected: the first picks div#build-info, a single segment (selectorPath stops at tag#id). "123-not-valid" starts with a digit so ID_RE rejects it; the picker falls back to sibling position, so the path ends in li:nth-of-type(2).</p>
+    </article>
+
+    <article class="card">
+      <h2>8. Selector path with classes</h2>
+      <p class="desc">Three classes on this element; only the first two survive.</p>
+      <div class="card-title lead extra" data-pick>class="card-title lead extra"</div>
+      <p class="expected">Expected: path ends in div.card-title.lead (extra is dropped; at most two classes are kept, in source order)</p>
+    </article>
+
+    <article class="card">
+      <h2>9. Selector path with neither id nor class</h2>
+      <p class="desc">Plain siblings with no id or class fall back to position among same-tag siblings.</p>
+      <ul class="plain-list">
+        <li data-pick>first</li>
+        <li data-pick>second</li>
+        <li data-pick>third, click me</li>
+        <li data-pick>fourth</li>
+      </ul>
+      <p class="expected">Expected: clicking "third" ends the path in li:nth-of-type(3)</p>
+    </article>
+
+    <article class="card">
+      <h2>10. Depth cap</h2>
+      <p class="desc">
+        Nine plain, unclassed, unidentified div wrappers around the target below
+        (open DevTools to confirm the real nesting).
+      </p>
+      <div class="deep-nest">
+        <div><div><div><div><div><div><div><div><div>
+          <span data-pick>Click me</span>
+        </div></div></div></div></div></div></div></div></div>
+      </div>
+      <p class="expected">Expected: selectorPath climbs at most 6 segments (segments.slice(0, 6) in dom.ts), so the path shows only the nearest 6 levels and drops the rest</p>
+    </article>
+
+    <article class="card">
+      <h2>11. Open shadow DOM</h2>
+      <p class="desc">A custom element with attachShadow({ mode: 'open' }) holding a button.</p>
+      <open-shadow-demo></open-shadow-demo>
+      <p class="expected">Expected: picking the button crosses the boundary; the path contains " &gt;&gt;&gt; "</p>
+    </article>
+
+    <article class="card">
+      <h2>12. Closed shadow DOM</h2>
+      <p class="desc">Same, but attachShadow({ mode: 'closed' }). The picker cannot see inside a closed root.</p>
+      <closed-shadow-demo></closed-shadow-demo>
+      <p class="expected">Expected: the picker cannot reach the inner button; the host element itself is picked</p>
+    </article>
+
+    <article class="card">
+      <h2>13. iframe</h2>
+      <p class="desc">
+        Points at a srcdoc document, so it needs no network. The picker is injected only
+        into the top frame (no allFrames), so click the dashed padded edge, not the
+        button inside.
+      </p>
+      <iframe srcdoc="&lt;button&gt;Inner button&lt;/button&gt;" style="width:100%;box-sizing:border-box;height:76px;padding:16px;border:1px dashed #b6a9ee;border-radius:6px;background:#fbfaff;"></iframe>
+      <p class="expected">Expected: clicking the padded edge (still the top document) picks the iframe element itself; the markup renders as &lt;iframe ...&gt;...&lt;/iframe&gt; (a COLLAPSE_TAG). Clicking the inner button does nothing: it is inside the frame's own document, which this picker never sees.</p>
+    </article>
+
+    <article class="card">
+      <h2>14. Inline SVG shape</h2>
+      <p class="desc">Clicking the shape should never pick the shape itself.</p>
+      <div class="shape-box">
+        <svg data-pick viewBox="0 0 100 40" width="100" height="40">
+          <circle cx="20" cy="20" r="16" fill="#6e56cf" />
+          <path d="M50 30 L65 10 L80 30 Z" fill="#ff7a59" />
+        </svg>
+      </div>
+      <p class="expected">Expected: clicking the circle or the path picks the closest ancestor svg, never the shape (and the svg's own markup renders collapsed too, svg is also a COLLAPSE_TAG)</p>
+    </article>
+
+    <article class="card">
+      <h2>15. Truncation</h2>
+      <p class="desc">An attribute value and a text node that both exceed the picker's caps.</p>
+      <p data-pick data-config="config-token-9f3a7c21-workspace-settings-theme-dark-locale-en-US-timezone-utc-offset-01234">This paragraph keeps going well past the picker's text cap so you can watch the copied prompt cut it off partway through this very sentence.</p>
+      <p class="expected">Expected: the 90-character data-config value truncates to its first 77 characters plus "..." (80 total, truncateAttr); the 140-character text truncates to its first 117 characters plus "..." (120 total, truncateText). Pick it, type any prompt, press Enter with no cmux reachable (an empty prompt just flashes red) to copy it, and paste it somewhere to see the exact cut.</p>
+    </article>
+
+    <article class="card">
+      <h2>16. Multi-select</h2>
+      <p class="desc">
+        Shift+click chips to build a selection (each gets a numbered outline); a plain
+        click finishes and opens the popup. Try shift+clicking all six: the sixth shows
+        a toast instead of adding.
+      </p>
+      <div class="row">
+        <button type="button" data-pick>A</button>
+        <button type="button" data-pick>B</button>
+        <button type="button" data-pick>C</button>
+        <button type="button" data-pick>D</button>
+        <button type="button" data-pick>E</button>
+        <button type="button" data-pick>F</button>
+      </div>
+      <p class="expected">Expected: up to 5 total (MAX_SELECTION in picker.ts). A 6th shift+click shows a toast "Up to 5 elements" instead of adding it; a plain click (no shift) always finishes and opens the popup, whether or not you shift+clicked anything first. In the outgoing markup the first chip you shift+clicked is the primary (data-cmux-picked=""); the rest are numbered 2 and up, in the order added, with the finishing plain click's chip appended last if it wasn't already selected.</p>
+    </article>
+
+    <article class="card">
+      <h2>17. Big subtree, over the inline limit</h2>
+      <p class="desc">Pick a row from the middle of the list (not the first two or last two: those show fewer neighbors and stay under the limit).</p>
+      <ul class="changelog" id="changelog"></ul>
+      <p class="expected">Expected: only observable end to end with a live cmux target (the clipboard fallback always inlines the full markup). The rendered attachment for a middle row is well over native.ts's 1500-character inlineMaxChars, so a real send writes it to a file and the prompt shows a "Details: &lt;path&gt;" line instead of inlining the snippet.</p>
+    </article>
+
+    <article class="card">
+      <h2>18. Attach screenshot</h2>
+      <p class="desc">A visually distinctive block to try the "Attach screenshot" toggle in the popup (it appears once cmux reports screenshot capture is available).</p>
+      <div class="shot-block" data-pick>Bright gradient block, easy to spot in a screenshot</div>
+      <p class="expected">Expected: the screenshot is the real pixels of this element plus a 40px margin (MARGIN in content.ts), cropped from the visible tab, not a re-render</p>
+    </article>
+
+  </div>
+
+  <footer>
+    <p>
+      What this page cannot show: the Vue and React dev-runtime hints (a Vue component's
+      __file/__name, a React fiber's component name) that sourceHint reads straight off a
+      live framework instance rather than a static attribute. Those need a real dev server
+      with the framework actually mounted, which is what
+      <a href="https://github.com/scaccogatto/vite-plugin-herdr">vite-plugin-herdr</a>'s
+      own demo is for.
+    </p>
+  </footer>
+</div>
+
+<script>
+  // Page CSS (including the [data-pick] rule) does not cross a shadow boundary, so
+  // these buttons carry their own inline style to still look like a click target.
+  const shadowBtnStyle = 'cursor:pointer;font:inherit;border:1px dashed #b6a9ee;border-radius:6px;padding:6px 10px;background:#fbfaff;'
+
+  class OpenShadowDemo extends HTMLElement {
+    connectedCallback() {
+      const shadow = this.attachShadow({ mode: 'open' })
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.style.cssText = shadowBtnStyle
+      btn.textContent = 'Button in an open shadow root'
+      shadow.appendChild(btn)
+    }
+  }
+  class ClosedShadowDemo extends HTMLElement {
+    connectedCallback() {
+      const shadow = this.attachShadow({ mode: 'closed' })
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.style.cssText = shadowBtnStyle
+      btn.textContent = 'Button in a closed shadow root'
+      shadow.appendChild(btn)
+    }
+  }
+  customElements.define('open-shadow-demo', OpenShadowDemo)
+  customElements.define('closed-shadow-demo', ClosedShadowDemo)
+
+  const sentences = [
+    'Deployed the new checkout flow to staging for the design team to review before Friday.',
+    'Fixed the flaky retry logic in the payment webhook handler, added a regression test.',
+    'Rotated the staging database credentials after the audit flagged the shared service account.',
+    'Investigated the slow query on the orders table, added a composite index on status and created_at.',
+    'Reviewed the accessibility pass on the settings page, two contrast issues remain open.',
+  ]
+  const changelog = document.getElementById('changelog')
+  for (let i = 0; i < 30; i++) {
+    const li = document.createElement('li')
+    li.setAttribute('data-pick', '')
+    li.setAttribute('data-entry-id', `log-entry-${i}-${'x'.repeat(60)}`)
+    li.setAttribute('data-team', `platform-engineering-${'y'.repeat(20)}`)
+    li.textContent = `${sentences[i % sentences.length]} (#${i})`
+    changelog.appendChild(li)
+  }
+</script>
+</body>
+</html>

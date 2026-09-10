@@ -32,6 +32,10 @@ Pick a DOM element on any page in Chrome and send it, with a prompt, to a coding
 
 **Uninstall:** Remove the extension from `chrome://extensions`, delete `~/.config/cmux-picker`, and remove `com.scaccogatto.cmux_picker.json` from the browser's NativeMessagingHosts directories.
 
+## Demo
+
+Run `npm run demo`, open the printed URL, press `Ctrl+B`, click a card's element, pick a target and send. A target needs a cmux terminal running an agent: a terminal cmux has not bound an agent session to is listed as `unknown` and is never preselected.
+
 ## Agent status and the spawn rows
 
 The popup lists agents cmux is tracking. Agent status (idle, working, blocked) comes from the hook session stores; a surface with no tracked agent shows status `unknown`.

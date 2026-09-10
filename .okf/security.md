@@ -83,7 +83,7 @@ composed text carries page markup a shell would expand.
 
 ## Edge Cases
 
-**iframe.** `document.elementFromPoint` does not cross into a nested document, so a click over an `<iframe>` picks the `<iframe>` element itself, its tag and attributes such as `src`, never anything inside it. `iframe` is also in `dom.ts`'s `COLLAPSE_TAGS`, so wherever it appears in the trimmed snippet it renders as `<iframe ...>...</iframe>` without descending into it.
+**iframe.** A frame's content area belongs to the frame's own document, so pointer events there never reach the top-frame content script: nothing inside a frame can be picked, and hovering the middle of one leaves the outline wherever it already was. The `<iframe>` ELEMENT is still pickable where its own box is not covered by that content area, which in practice means its border and padding. Verified against the built extension in Chromium: on the demo page's padded frame, a click 8 px inside the edge picks the iframe, and a click at its centre does nothing at all. `iframe` is in `dom.ts`'s `COLLAPSE_TAGS`, so wherever it appears in a trimmed snippet it renders as `<iframe ...>...</iframe>`, with its attributes and without descending into it.
 
 **Shadow DOM.** `deepElementFromPoint` walks into open shadow roots (`el.shadowRoot.elementFromPoint`) to find the real element under the cursor. A closed root's `.shadowRoot` reads `null` from outside, so the loop stops at the host element; nothing inside a closed root is reachable. Going the other direction, `selectorPath` climbs out of an ancestor shadow root and marks the crossing with ` >>> ` in the path string.
 

@@ -40,6 +40,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "lint": "eslint .",
+    "demo": "node demo/serve.mjs",
     "e2e": "playwright test",
     "store-assets": "STORE_ASSETS=1 playwright test e2e/store-assets.spec.ts",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
