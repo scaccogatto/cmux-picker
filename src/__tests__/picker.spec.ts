@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { StateResponse, PromptResponse, SpawnResponse } from '../types.ts'
 import type { Relay, RelayReply } from '../extension/picker.ts'
 import { mount } from '../extension/picker.ts'
@@ -11,8 +11,7 @@ const fakeRelay = (): { relay: Relay; calls: Record<string, number | unknown[]> 
       calls.state++
       return {
         cmux: true,
-        version: '0.8.2',
-        protocol: 20,
+        version: '0.64.22',
         workspaceId: 'w1',
         paneId: 'w1:p1',
         workspaces: [{ workspace_id: 'w1', label: 'app', number: 1, focused: true }],
@@ -26,7 +25,10 @@ const fakeRelay = (): { relay: Relay; calls: Record<string, number | unknown[]> 
     prompt: async (body: unknown) => {
       calls.prompt.push(body)
       const { target } = body as { target: string }
-      return { status: 200, body: { ok: true, target, title: 'Settings polish', pane_id: target, screenshot: null } } as RelayReply<PromptResponse>
+      return {
+        status: 200,
+        body: { ok: true, target, title: 'Settings polish', pane_id: target, screenshot: null, submitted: true, submit_error: null },
+      } as RelayReply<PromptResponse>
     },
     spawn: async () => {
       calls.spawn++
@@ -38,6 +40,20 @@ const fakeRelay = (): { relay: Relay; calls: Record<string, number | unknown[]> 
     },
   }
   return { relay, calls }
+}
+
+/**
+ * jsdom never produces a trusted event (Event.isTrusted is spec-mandated LegacyUnforgeable, so it
+ * can't be faked via defineProperty, and .click()/dispatchEvent() are untrusted by spec too) - and
+ * the picker deliberately only acts on trusted clicks/keys, a real guard against a page script
+ * spoofing input. To exercise that gated code here without touching the guard itself, capture the
+ * listener the picker registered via addEventListener and invoke it directly with a trusted-looking
+ * event object; the production guards and dispatch are untouched.
+ */
+function capturedListener(spy: ReturnType<typeof vi.spyOn>, target: EventTarget, type: string): (e: Event) => void {
+  const idx = spy.mock.calls.findIndex((args: unknown[], i: number) => args[0] === type && spy.mock.contexts[i] === target)
+  if (idx === -1) throw new Error(`no "${type}" listener captured for target`)
+  return spy.mock.calls[idx][1] as (e: Event) => void
 }
 
 beforeEach(() => {
@@ -154,5 +170,81 @@ describe('picker.mount', () => {
     expect(info.url).toBeDefined()
     expect(info.viewport).toBeDefined()
     expect(info.rect).toBeDefined()
+  })
+})
+
+describe('picker.mount: sending a prompt', () => {
+  it('submitted:false starts no in-flight poll and toasts that the text is waiting in cmux', async () => {
+    const { relay } = fakeRelay()
+    relay.prompt = async (body: unknown) => {
+      const { target } = body as { target: string }
+      return {
+        status: 200,
+        body: { ok: true, target, title: 'Settings polish', pane_id: target, screenshot: null, submitted: false, submit_error: 'surface not focused' },
+      } as RelayReply<PromptResponse>
+    }
+
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
+    mount(relay)
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event)
+    capturedListener(addListenerSpy, sendBtn, 'click')({ isTrusted: true } as unknown as Event)
+    addListenerSpy.mockRestore()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(window.__cmux!.inflight()).toBeNull()
+    const toast = host.shadowRoot!.querySelector('.toast') as HTMLElement
+    expect(toast.style.display).toBe('block')
+    expect(toast.textContent).toContain('press Enter')
+    expect(toast.textContent).toContain('surface not focused')
+  })
+
+  it('submitted:true (the default) starts the in-flight poll and does not show the "press Enter" toast', async () => {
+    const { relay } = fakeRelay()
+
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
+    mount(relay)
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event)
+    capturedListener(addListenerSpy, sendBtn, 'click')({ isTrusted: true } as unknown as Event)
+    addListenerSpy.mockRestore()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(window.__cmux!.inflight()).toBe('w1:p2')
+    const toast = host.shadowRoot!.querySelector('.toast') as HTMLElement
+    expect(toast.textContent).not.toContain('press Enter')
+  })
+})
+
+describe('picker.mount: not-reachable notice', () => {
+  it.each([
+    ['access_denied', ['Automation mode', 'Password mode']],
+    ['no_socket', ['cmux is not running']],
+    ['capabilities', ['too old']],
+    ['some_future_reason', ['some_future_reason']],
+  ])('explains reason "%s"', async (reason, expectedSubstrings) => {
+    const { relay } = fakeRelay()
+    relay.state = async () => ({ cmux: false, reason, message: 'x' }) as StateResponse
+
+    mount(relay)
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const notice = host.shadowRoot!.querySelector('.agents-notice') as HTMLElement
+    expect(notice.hidden).toBe(false)
+    for (const substring of expectedSubstrings) expect(notice.textContent).toContain(substring)
   })
 })

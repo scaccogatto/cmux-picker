@@ -5,15 +5,16 @@
  * JSON. Stdout is the protocol channel; diagnostics go to stderr.
  */
 
-import { resolveSocketPath } from './cmux.ts'
+import { resolveSocketPath, resolvePassword } from './cmux.ts'
 import { cleanupAttachments, ATTACHMENT_DIR } from './bridge.ts'
 import { createHandler, decodeFrames, encodeFrame } from './native.ts'
 
 const socketPath = resolveSocketPath(process.env.CMUX_SOCKET_PATH)
+const password = resolvePassword({ env: process.env })
 
 await cleanupAttachments(ATTACHMENT_DIR).catch(() => {})
 
-const handler = createHandler({ socketPath, attachmentDir: ATTACHMENT_DIR })
+const handler = createHandler({ socketPath, attachmentDir: ATTACHMENT_DIR, password })
 
 let buffer: Buffer = Buffer.alloc(0)
 

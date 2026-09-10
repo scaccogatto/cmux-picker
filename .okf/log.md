@@ -1,15 +1,15 @@
 # Update Log
 
-## 2026-09-09
+## 2026-09-10
 
-Repository bootstrapped: configs adapted from vite-plugin-cmux, shared modules copied at f5ef5e1 (see UPSTREAM.md).
+Repository created as a copy of herdr-picker with global `herdr` → `cmux` rename. All code retargeted to cmux's v2 socket protocol.
 
-Core modules adapted for the extension: relay-based picker (no HTTP/HMR), screenshotPng instead of ScreenshotRequest (base64 PNG captured by extension), no dev-server screencapture, trusted-event guards on UI, no in-page hotkey.
+Socket transport rewritten: `src/cmux.ts` (new) replaces herdr-specific connection logic with NDJSON framing over Unix socket, optional `auth <password>` preamble, and reply envelope parsing (`{id, ok, result}` or `{id, ok:false, error}`). Password resolution from env or file `~/.local/state/cmux/socket-control-password`.
 
-Documentation landed: README.md (use, install, security), CHANGELOG.md (Keep a Changelog format), architecture.md (modules, contracts, message flow), security.md (boundaries, guards, edge cases), release.md (versioning, npm/Web Store steps). First release pending.
+Bridge module rewritten for cmux methods: `getState` gates on `system.capabilities`, calls `system.tree` and `extension.sidebar.snapshot`, reads hook session stores from `~/.cmuxterm/<agent>-hook-sessions.json`. Agent status mapped from hook lifecycle (`running`/`idle`/`needsInput`/`unknown` → `working`/`idle`/`blocked`/`unknown`). Remote workspaces filtered out. `postPrompt` uses `terminal.paste` with `submit_key:'return'`, maps `submitted:false` to a 200 response (not an error). `spawnAgent` uses `surface.split` or `git worktree add` + `workspace.create`, polls hook stores for the new surface id.
 
-0.1.0 published to npm by hand (trusted-publishing bootstrap), tag v0.1.0 pushed, the release workflow found it on the registry and skipped the publish. The published bin failed under npx: dist/cli.js had no shebang, so the shell ran the bundle as a script. 0.1.1 adds the shebang to src/cli.ts (the Vite build keeps it) and e2e/package.spec.ts, which packs and installs the package and runs the bin link the way npx does.
+Native host updated: password option threaded through `createHandler` into every bridge call. `httpStatus` mapping updated for cmux error codes.
 
-Trusted publishing bootstrap findings: a trusted publisher created after 2026-09-03 allows only `npm stage publish` until "Allowed actions" also permits direct `npm publish` (otherwise `E403 OIDC permission denied for this action` after a successful token exchange); `setup-node`'s `registry-url` plants an unresolved `${NODE_AUTH_TOKEN}` in `.npmrc` that turns a failed exchange into `E404`. release.yml dropped `registry-url` and publishes at verbose log level; release.md updated.
+In-flight polling grace window increased from 5s to 15s to tolerate the asynchronous Claude Code `prompt-submit` hook.
 
-Chrome Web Store material prepared: store/listing.md, PRIVACY.md, store assets spec (npm run store-assets); release.md store section rewritten as an ordered first-submission sequence (draft upload without the manifest key, harvest the Store key, patch release, replace the package, submit).
+Documentation: README.md updated for macOS-only, mandatory socket mode setting (Automation/Password), overlap with cmux's built-in browser. CHANGELOG.md reset to single Unreleased entry. PRIVACY.md updated for socket-only delivery. CLAUDE.md updated for fake-cmux and CMUX_PICKER_STATE_DIR conventions. store/listing.md adapted for cmux. All .okf/ concepts regenerated for cmux protocol, socket access control as threat model, generated field updated.

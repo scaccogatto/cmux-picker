@@ -142,6 +142,8 @@ const USAGE = `cmux-picker install-host [--socket <path>] [--extension-id <id>] 
 Installs the native messaging host Chrome launches for the cmux picker extension:
   copies host.js to ~/.config/cmux-picker/ (XDG_CONFIG_HOME honoured), writes host.sh
   next to it, and registers it with every Chrome/Chromium profile found (or --browser-dir).
+  The cmux control socket must allow external clients: set cmux Settings > Automation
+  to "Automation mode" or "Password mode" (default "cmux processes only" will reject).
   --socket        bake CMUX_SOCKET_PATH into host.sh (named cmux sessions)
   --extension-id  override the id derived from the bundled extension manifest's key
   --browser-dir   write the host manifest into this NativeMessagingHosts directory only`
@@ -231,7 +233,7 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
 
-  console.log(`Now load the extension and press Ctrl+B on any page (re-run after upgrading node or cmux-picker).`)
+  console.log(`Now load the extension and press Ctrl+B on any page. First ensure cmux Settings > Automation is set to "Automation mode" or "Password mode" (not default "cmux processes only").`)
   return 0
 }
 

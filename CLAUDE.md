@@ -14,8 +14,8 @@ Chrome extension (Manifest V3) plus a native messaging host: pick a DOM element 
 
 - **TypeScript imports**: All `.ts` files import from other `.ts` files with the `.ts` extension (e.g., `import { x } from './types.ts'`), enabled by `tsconfig.json` `allowImportingTsExtensions: true`. Built output ships bundled `.js` files.
 - **Worktrees and commits**: For any task modifying code, use a git worktree (via EnterWorktree/ExitWorktree). Commit changes on your branch, then merge into main. Never commit generated `dist/` files.
-- **e2e specs must never reach a real cmux**: the native host under test always runs with `CMUX_SOCKET_PATH` pointing at a fake cmux socket started from `src/__tests__/helpers/fake-cmux.ts`.
-- **No dependency on vite-plugin-cmux**: the shared modules were copied from it (see `UPSTREAM.md`) and are owned here. Never import, link or depend on that package; port fixes by hand.
+- **e2e specs must never reach a real cmux**: the native host under test always runs with `CMUX_SOCKET_PATH` pointing at a fake cmux socket started from `src/__tests__/helpers/fake-cmux.ts` and `CMUX_PICKER_STATE_DIR` pointing at a temporary directory with fabricated hook session stores.
+- **No dependency on vite-plugin-herdr or herdr-picker**: the shared modules were copied from vite-plugin-herdr (see `UPSTREAM.md`) and are owned here. Never import, link or depend on either package; port fixes by hand. Nothing is imported from cmux (GPL-3.0); we only speak its documented socket protocol.
 
 ## Open Knowledge Format (OKF)
 

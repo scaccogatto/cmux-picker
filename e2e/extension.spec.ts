@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync, statSync } from 'node:fs'
 import type { Harness } from './helpers/extension.ts'
-import { launchExtension, triggerPick, pickSaveButton, liveSnapshot } from './helpers/extension.ts'
+import { DEFAULT_SURFACE_ID, DEFAULT_WORKSPACE_ID, launchExtension, triggerPick, pickSaveButton } from './helpers/extension.ts'
 
 let harness: Harness | undefined
 
@@ -13,24 +13,7 @@ test.afterEach(async () => {
 })
 
 test('sends the picked element to the agent and shows DONE', async () => {
-  let snapshotsAfterPrompt = 0
-
-  harness = await launchExtension({
-    snapshot: (received) => {
-      // Count snapshots after the first prompt
-      const promptIndex = received.findIndex((msg) => msg.method === 'agent.prompt')
-      if (promptIndex >= 0) {
-        snapshotsAfterPrompt = received.filter((msg, i) => i > promptIndex && msg.method === 'session.snapshot').length
-      }
-
-      // Return working status until we have 2 snapshots after the prompt
-      if (promptIndex < 0) {
-        return liveSnapshot('working')
-      }
-
-      return snapshotsAfterPrompt >= 2 ? liveSnapshot('idle') : liveSnapshot('working')
-    },
-  })
+  harness = await launchExtension({})
 
   const { page } = harness
 
@@ -60,8 +43,10 @@ test('sends the picked element to the agent and shows DONE', async () => {
 
   expect(prompt).toBeDefined()
   if (prompt) {
-    expect(prompt.target).toBe('w1:p2')
-    expect(prompt.text).toContain('[cmux-picker] http://127.0.0.1/pick.html')
+    expect(prompt.workspace_id).toBe(DEFAULT_WORKSPACE_ID)
+    expect(prompt.surface_id).toBe(DEFAULT_SURFACE_ID)
+    expect(prompt.submit_key).toBe('return')
+    expect(prompt.text.startsWith('[cmux-picker] http://')).toBe(true)
     expect(prompt.text).toContain('Focus: none, find by selector')
     expect(prompt.text).toContain('Element: button#save')
     expect(prompt.text).toContain('data-cmux-picked=""')
@@ -73,22 +58,7 @@ test('sends the picked element to the agent and shows DONE', async () => {
 })
 
 test('attaches a real-pixel screenshot when the switch is on', async () => {
-  let snapshotsAfterPrompt = 0
-
-  harness = await launchExtension({
-    snapshot: (received) => {
-      const promptIndex = received.findIndex((msg) => msg.method === 'agent.prompt')
-      if (promptIndex >= 0) {
-        snapshotsAfterPrompt = received.filter((msg, i) => i > promptIndex && msg.method === 'session.snapshot').length
-      }
-
-      if (promptIndex < 0) {
-        return liveSnapshot('working')
-      }
-
-      return snapshotsAfterPrompt >= 2 ? liveSnapshot('idle') : liveSnapshot('working')
-    },
-  })
+  harness = await launchExtension({})
 
   const { page } = harness
 
@@ -148,11 +118,46 @@ test('attaches a real-pixel screenshot when the switch is on', async () => {
   await expect(page.locator('[data-cmux-host] .inflight-chip.done')).toBeVisible({ timeout: 10_000 })
 })
 
-test('falls back to the clipboard notice when the native host is not installed', async () => {
+test('a submitted:false reply shows the press-enter toast and clears the in-flight poll', async () => {
   harness = await launchExtension({
-    installHost: false,
-    snapshot: () => liveSnapshot('idle'),
+    handlers: {
+      // cmux left the text sitting unsubmitted at the prompt: no lifecycle transition will ever
+      // follow, so this must surface immediately rather than waiting on a poll that never settles.
+      'terminal.paste': (params) => ({
+        workspace_id: params.workspace_id,
+        surface_id: params.surface_id,
+        submitted: false,
+        submit_error: 'no active turn',
+      }),
+    },
   })
+
+  const { page } = harness
+
+  await triggerPick(harness.context, page)
+  await pickSaveButton(page)
+
+  await expect(page.locator('[data-cmux-host] .popup textarea')).toBeFocused({ timeout: 5000 })
+  // Wait for agents to load: sending before then would hit the empty-state clipboard fallback
+  // instead of exercising the cmux path this test is about.
+  await expect(page.locator('[data-cmux-host] .shot-row')).toBeVisible({ timeout: 5000 })
+  await page.locator('[data-cmux-host] .popup textarea').fill('Make it green')
+  await page.locator('[data-cmux-host] .send-btn').click()
+
+  await expect.poll(() => harness!.sentPrompts().length).toBe(1)
+
+  await expect(page.locator('[data-cmux-host] .toast')).toContainText('press Enter there to send it', { timeout: 5000 })
+  await expect(page.locator('[data-cmux-host] .toast')).toContainText('no active turn')
+
+  // The pane was cleared back out of in-flight tracking: a retry would double-paste, so no poll runs.
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __cmux?: { inflight(): string | null } }).__cmux?.inflight() ?? null))
+    .toBeNull()
+  await expect(page.locator('[data-cmux-host] .inflight-chip')).not.toBeVisible()
+})
+
+test('falls back to the clipboard notice when the native host is not installed', async () => {
+  harness = await launchExtension({ installHost: false })
 
   const { page } = harness
 

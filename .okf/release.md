@@ -4,8 +4,8 @@ title: Release versioning and publication
 description: Steps to cut a release, what the tag-triggered workflow does, npm trusted publishing, and the Chrome Web Store upload
 tags: [release, versioning, npm, chrome-web-store, conventional-commits, runbook]
 generated:
-  by: claude/sonnet-5
-  at: 2026-09-09
+  by: claude/fable-5-1
+  at: 2026-09-10
 status: stable
 sources:
   - resource: ../CHANGELOG.md
@@ -17,7 +17,7 @@ sources:
 
 ## Cutting a release
 
-1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. For the first release both are already `0.1.0`. Nothing in `scripts`, `ci.yml`, or `release.yml` checks that the two match; keeping them in sync is a convention, not something enforced.
+1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. For the first release both start at `0.0.0` (this is the initial port from herdr-picker); increment to the intended first version. Nothing in `scripts`, `ci.yml`, or `release.yml` checks that the two match; keeping them in sync is a convention, not something enforced.
 2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries into a new dated section for the version. There is no prior dated section yet: this repo has not cut a release.
 3. **Commit, tag, push the tag:**
    ```sh

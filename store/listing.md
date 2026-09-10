@@ -38,24 +38,26 @@ Copy-paste source for the developer dashboard. Keep it in sync with `README.md` 
 ```
 cmux picker lets you point at any element on any page and hand it, with a prompt, to a coding agent running in cmux on your own machine.
 
-Press Ctrl+B (Control+B on macOS) or click the toolbar icon. Hover to outline elements, click to pick one, Shift+click to select up to five. Type what you want changed and press Enter: the agent you chose receives the element's selector path, its trimmed HTML, computed styles, viewport and position, a source hint when the page carries one (locator attributes or a Vue dev runtime; React's dev runtime gives the component name only) and, if you switch it on, a real-pixel screenshot of the element.
+Press Ctrl+B (Control+B on macOS) or click the toolbar icon. Hover to outline elements, click to pick one, Shift+click to select up to five. Type what you want changed and press Enter: your prompt lands as one bracketed paste in the agent's terminal, followed by a Return keystroke. The agent you chose receives the element's selector path, its trimmed HTML, computed styles, viewport and position, a source hint when the page carries one (locator attributes or a Vue dev runtime; React's dev runtime gives the component name only) and, if you switch it on, a real-pixel screenshot of the element.
 
 It works on every page you browse: your own apps under any framework or server, staging, production, third-party sites as a visual reference.
 
 WHAT YOU NEED
-• cmux (https://cmux.dev) running with at least one agent pane.
-• The native messaging host, installed once: npx cmux-picker install-host (macOS and Linux).
+• macOS with cmux installed (https://cmux.com).
+• cmux Settings > Automation set to "Automation mode" or "Password mode" (the default "cmuxOnly" mode rejects external processes).
+• For agent status and the spawn rows: Claude Code integration enabled in cmux Settings, and/or hooks configured for other agents via "cmux hooks setup <agent>".
+• The native messaging host, installed once: npx cmux-picker install-host.
 
 HOW IT REACHES CMUX
-Chrome starts a small local process, the native messaging host, that only this extension can talk to. The host relays your prompt to cmux's local socket. No localhost port, no token, no server, no account: nothing leaves your machine.
+Chrome starts a small local process, the native messaging host, that only this extension can talk to. The host sends your prompt to cmux's local Unix socket. No localhost port, no token, no server, no account: nothing leaves your machine.
 
 CHOOSE THE AGENT
-The To field lists the agents cmux is running, grouped by workspace, and remembers the last one you used on that site. "+ agent here" opens a new agent split next to cmux's focused pane; "+ agent in worktree" starts one in a fresh git worktree. Blocked agents are listed but cannot be targeted. While the agent works, the picked element keeps its outline until the agent settles.
+The To field lists the agents cmux is running, grouped by workspace, and remembers the last one you used on that site. "+ agent here" opens a new agent split next to cmux's focused surface; "+ agent in worktree" starts one in a fresh git worktree (requires the Claude Code integration). Blocked agents are listed but cannot be targeted. While the agent works, the picked element keeps its outline until the agent settles (idle, working, or blocked), polling cmux's state every 2 seconds.
 
-If the host is not installed or cmux is not running, the prompt is copied to your clipboard instead, with the reason shown in the popup.
+If the host is not installed, cmux is not running, or the socket mode is set to cmuxOnly, the prompt is copied to your clipboard instead, with the reason shown in the popup.
 
 Open source (MIT): https://github.com/scaccogatto/cmux-picker
-For pages you serve with Vite there is vite-plugin-cmux: same picker, no extension needed.
+For pages you serve with Vite there is vite-plugin-herdr: same picker, no extension needed.
 ```
 
 ## Privacy practices tab

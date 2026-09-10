@@ -70,6 +70,16 @@ describe('wrapperScript', () => {
     expect(script).toContain('export CMUX_SOCKET_PATH="/path/\\"quoted\\"/socket.sock"')
   })
 
+  it('never includes password in wrapper script', () => {
+    const script = wrapperScript({
+      nodePath: '/usr/bin/node',
+      hostJs: '/path/to/host.js',
+      socketPath: '/tmp/cmux.sock',
+    })
+    expect(script).not.toContain('CMUX_SOCKET_PASSWORD')
+    expect(script).not.toContain('password')
+  })
+
   it('script is executable as shell', () => {
     const script = wrapperScript({ nodePath: '/usr/bin/node', hostJs: '/path/to/host.js' })
     const lines = script.split('\n').filter((l) => l.length > 0)
@@ -277,6 +287,8 @@ describe('main', () => {
       const code = await main(['--help'])
       expect(code).toBe(0)
       expect(output).toContain('install-host')
+      expect(output).toContain('Automation mode')
+      expect(output).toContain('cmux Settings')
     } finally {
       console.log = consoleLog
     }

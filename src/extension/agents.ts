@@ -13,11 +13,6 @@ function synthesizedWorkspace(workspaceId: string): WorkspaceRow {
   return { workspace_id: workspaceId, label: null, number: null, focused: false }
 }
 
-function paneNumber(paneId: string): number {
-  const match = paneId.match(/:p(\d+)/)
-  return match !== null ? Number(match[1]) : 0
-}
-
 function compareWorkspaces(a: WorkspaceRow, b: WorkspaceRow): number {
   if (a.number === null && b.number === null) return a.workspace_id.localeCompare(b.workspace_id)
   if (a.number === null) return 1
@@ -26,7 +21,8 @@ function compareWorkspaces(a: WorkspaceRow, b: WorkspaceRow): number {
   return a.workspace_id.localeCompare(b.workspace_id)
 }
 
-/// Group agents by workspace, ordered by workspace.number then workspace_id, agents ordered by pane id
+/// Group agents by workspace, ordered by workspace.number then workspace_id; agents within a
+/// group keep the order the host returned (cmux's system.tree surface order), not re-sorted
 export function groupAgents(state: LiveState): AgentGroup[] {
   const workspaceById = new Map(state.workspaces.map((w) => [w.workspace_id, w]))
 
@@ -39,26 +35,26 @@ export function groupAgents(state: LiveState): AgentGroup[] {
 
   const groups: AgentGroup[] = Array.from(agentsByWorkspace.entries()).map(([workspaceId, agents]) => ({
     workspace: workspaceById.get(workspaceId) ?? synthesizedWorkspace(workspaceId),
-    agents: [...agents].sort((a, b) => paneNumber(a.pane_id) - paneNumber(b.pane_id)),
+    agents,
   }))
 
   return groups.sort((a, b) => compareWorkspaces(a.workspace, b.workspace))
 }
 
-/// Selectable (non-blocked) pane ids, flattened in group order
+/// Selectable (non-blocked) surface ids (AgentRow.pane_id), flattened in group order
 export function selectableIds(groups: AgentGroup[]): string[] {
   return groups.flatMap((g) => g.agents.filter((a) => a.agent_status !== 'blocked').map((a) => a.pane_id))
 }
 
-/// Label of the focused workspace reported by the host - so "+ agent here" (which splits a pane
-/// next to its focused pane) names this workspace specifically. Null when workspaceId is
-/// unset, no workspace matches it, or the match has no label - callers show a generic fallback
+/// Label of the focused workspace reported by the host - so "+ agent here" (which splits a
+/// surface next to its focused surface) names this workspace specifically. Null when workspaceId
+/// is unset, no workspace matches it, or the match has no label - callers show a generic fallback
 /// rather than falling back to the raw workspace id.
 export function devWorkspaceLabel(state: LiveState): string | null {
   return state.workspaces.find((w) => w.workspace_id === state.workspaceId)?.label ?? null
 }
 
-/// Preselect a target agent: last used pane, then last used session, then a live agent in the
+/// Preselect a target agent: last used surface, then last used session, then a live agent in the
 /// current workspace, then any focused agent, then the first selectable agent
 export function pickAgent(state: LiveState, last: { pane_id: string; session: string | null } | null): string | null {
   const selectable = groupAgents(state)

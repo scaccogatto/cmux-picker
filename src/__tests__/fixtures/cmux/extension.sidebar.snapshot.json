@@ -1,0 +1,81 @@
+{
+  "selected_workspace_id": "C079048E-E07E-4D6D-86AB-B15E6C887704",
+  "selected_workspace_ref": "workspace:1",
+  "seq": 37,
+  "sequence": 37,
+  "window_id": "A3439572-6309-44DA-8B22-683AFD6C84F5",
+  "window_ref": "window:1",
+  "workspaces": [
+    {
+      "branch_summary": null,
+      "current_directory": "/Users/dev",
+      "custom_color": null,
+      "description": null,
+      "git_branches": [],
+      "id": "C079048E-E07E-4D6D-86AB-B15E6C887704",
+      "index": 0,
+      "latest_conversation_message": null,
+      "latest_notification_text": null,
+      "latest_submitted_at": null,
+      "latest_submitted_message": null,
+      "listening_ports": [],
+      "panel_directories": [
+        "/Users/dev"
+      ],
+      "pinned": false,
+      "project_root_path": null,
+      "pull_request_urls": [],
+      "ref": "workspace:1",
+      "remote": {
+        "active_terminal_sessions": 0,
+        "conflicted_ports": [],
+        "connected": false,
+        "daemon": {
+          "capabilities": [],
+          "detail": null,
+          "name": null,
+          "remote_path": null,
+          "state": "unavailable",
+          "version": null
+        },
+        "destination": null,
+        "detail": null,
+        "detected_ports": [],
+        "enabled": false,
+        "forwarded_ports": [],
+        "has_identity_file": false,
+        "has_ssh_options": false,
+        "heartbeat": {
+          "age_seconds": null,
+          "count": 0,
+          "last_seen_at": null
+        },
+        "local_proxy_port": null,
+        "persistent_daemon_slot": null,
+        "port": null,
+        "proxy": {
+          "error_code": null,
+          "host": null,
+          "port": null,
+          "schemes": [
+            "socks5",
+            "http_connect"
+          ],
+          "state": "unavailable",
+          "url": null
+        },
+        "state": "disconnected",
+        "terminal_profile": null,
+        "terminal_tmux_session": null,
+        "terminal_transport": null,
+        "transport": null
+      },
+      "remote_connection_state": "disconnected",
+      "remote_display_target": null,
+      "root_path": "/Users/dev",
+      "selected": true,
+      "title": "~",
+      "unread_count": 0
+    }
+  ]
+}

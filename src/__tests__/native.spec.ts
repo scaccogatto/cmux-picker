@@ -1,12 +1,48 @@
 import { mkdtempSync, existsSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URL } from 'node:url'
 import { describe, it, expect, afterEach } from 'vitest'
-import { decodeFrames, encodeFrame, focusedEnv, createHandler, MAX_FRAME_BYTES, MAX_REPLY_BYTES } from '../native.ts'
+import { decodeFrames, encodeFrame, createHandler, MAX_FRAME_BYTES, MAX_REPLY_BYTES } from '../native.ts'
 import { startFakeCmux } from './helpers/fake-cmux.ts'
 import type { FakeCmux } from './helpers/fake-cmux.ts'
+
+const CAPABILITIES = {
+  methods: ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create'],
+  version: '0.64.22',
+}
+
+/**
+ * Writes a temp CMUX_PICKER_STATE_DIR with a fabricated claude-hook-sessions.json
+ * bound to surfaceId, in the real store shape: just {version, sessions}, the
+ * session carrying its own surfaceId (no activeSessionsBySurface index).
+ */
+async function tempStateDir(opts?: { surfaceId: string; sessionId: string; lifecycle: string }): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), 'cmp-state-'))
+  if (opts) {
+    await mkdir(dir, { recursive: true })
+    const store = {
+      version: 1,
+      sessions: { [opts.sessionId]: { sessionId: opts.sessionId, surfaceId: opts.surfaceId, agentLifecycle: opts.lifecycle, updatedAt: 1 } },
+    }
+    await writeFile(join(dir, 'claude-hook-sessions.json'), JSON.stringify(store), 'utf8')
+  }
+  return dir
+}
+
+/** getState/spawnAgent read the hook stores from CMUX_PICKER_STATE_DIR; run fn with it pointed at dir */
+async function withStateDir<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const original = process.env.CMUX_PICKER_STATE_DIR
+  process.env.CMUX_PICKER_STATE_DIR = dir
+  try {
+    return await fn()
+  } finally {
+    if (original === undefined) delete process.env.CMUX_PICKER_STATE_DIR
+    else process.env.CMUX_PICKER_STATE_DIR = original
+  }
+}
 
 describe('decodeFrames', () => {
   it('parses a single frame', () => {
@@ -116,76 +152,10 @@ describe('encodeFrame', () => {
   })
 })
 
-describe('focusedEnv', () => {
-  it('extracts workspace and pane ids from a snapshot', () => {
-    const snapshot = {
-      snapshot: {
-        focused_workspace_id: 'w1',
-        focused_pane_id: 'w1:p1',
-        panes: [
-          { pane_id: 'w1:p1', cwd: '/tmp/proj' },
-          { pane_id: 'w1:p2', cwd: '/other' },
-        ],
-      },
-    }
-
-    const result = focusedEnv(snapshot)
-    expect(result.env).toStrictEqual({ CMUX_WORKSPACE_ID: 'w1', CMUX_PANE_ID: 'w1:p1' })
-    expect(result.cwd).toBe('/tmp/proj')
-  })
-
-  it('returns empty env and null cwd when snapshot has no focus', () => {
-    const snapshot = {
-      snapshot: {
-        panes: [],
-      },
-    }
-
-    const result = focusedEnv(snapshot)
-    expect(result.env).toStrictEqual({})
-    expect(result.cwd).toBeNull()
-  })
-
-  it('only includes keys when they have string values', () => {
-    const snapshot = {
-      snapshot: {
-        focused_workspace_id: 'w1',
-        focused_pane_id: null, // not a string
-        panes: [],
-      },
-    }
-
-    const result = focusedEnv(snapshot)
-    expect(result.env).toStrictEqual({ CMUX_WORKSPACE_ID: 'w1' })
-    expect('CMUX_PANE_ID' in result.env).toBe(false)
-  })
-
-  it('returns empty env and null cwd for non-object input', () => {
-    const result = focusedEnv('not an object')
-    expect(result.env).toStrictEqual({})
-    expect(result.cwd).toBeNull()
-  })
-
-  it('finds cwd matching the focused pane id', () => {
-    const snapshot = {
-      snapshot: {
-        focused_pane_id: 'w2:p5',
-        panes: [
-          { pane_id: 'w1:p1', cwd: '/first' },
-          { pane_id: 'w2:p5', cwd: '/found' },
-          { pane_id: 'w2:p6', cwd: '/other' },
-        ],
-      },
-    }
-
-    const result = focusedEnv(snapshot)
-    expect(result.cwd).toBe('/found')
-  })
-})
-
 describe('createHandler', () => {
   let fake: FakeCmux | undefined
   let attachmentDir: string
+  let stateDir: string
 
   afterEach(async () => {
     await fake?.close()
@@ -202,49 +172,49 @@ describe('createHandler', () => {
     styles: { display: 'inline-flex' },
   }
 
-  it('state returns 200 with cmux:true and mapped agents', async () => {
-    fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        type: 'session_snapshot',
-        snapshot: {
-          version: '0.8.2',
-          protocol: 20,
-          focused_workspace_id: 'w1',
-          focused_pane_id: 'w1:p1',
-          workspaces: [{ workspace_id: 'w1', label: 'app', number: 1, focused: true }],
-          panes: [{ pane_id: 'w1:p1', workspace_id: 'w1', focused: true, cwd: '/tmp/proj' }],
-          agents: [
-            {
-              pane_id: 'w1:p2',
-              workspace_id: 'w1',
-              agent_status: 'idle',
-              focused: false,
-              agent: 'claude',
-              cwd: '/tmp/proj',
-              terminal_title_stripped: 'Settings polish',
-              tokens: { branch: 'main' },
-              agent_session: { value: 's1' },
-            },
-          ],
-        },
-      }),
-    })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+  const treeWithSurface = () => ({
+    active: { workspace_id: 'w1', surface_id: 'surf1' },
+    windows: [
+      {
+        id: 'win1',
+        index: 0,
+        selected_workspace_id: 'w1',
+        workspaces: [
+          {
+            id: 'w1',
+            index: 0,
+            title: 'app',
+            selected: true,
+            panes: [{ surfaces: [{ id: 'surf1', index: 0, type: 'terminal', title: 'Settings polish', focused: true }] }],
+          },
+        ],
+      },
+    ],
+  })
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
-    const reply = await handler({ id: '1', method: 'state', params: {} })
+  it('state returns 200 with cmux:true and mapped agents', async () => {
+    stateDir = await tempStateDir({ surfaceId: 'surf1', sessionId: 'sess1', lifecycle: 'idle' })
+    fake = await startFakeCmux({
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': treeWithSurface,
+      'extension.sidebar.snapshot': () => ({ workspaces: [{ id: 'w1', current_directory: '/tmp/proj', branch_summary: 'main' }] }),
+    })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
+    const reply = await withStateDir(stateDir, () => handler({ id: '1', method: 'state', params: {} }))
 
     expect(reply.status).toBe(200)
     const body = reply.body as Record<string, unknown>
     expect(body.cmux).toBe(true)
     expect(body.workspaceId).toBe('w1')
-    expect(body.paneId).toBe('w1:p1')
-    expect((body.agents as Array<unknown>)[0]).toMatchObject({ agent: 'claude' })
+    expect(body.paneId).toBe('surf1')
+    expect((body.agents as Array<unknown>)[0]).toMatchObject({ agent: 'claude', agent_status: 'idle' })
   })
 
   it('state returns 200 with cmux:false when socket does not exist', async () => {
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
-    const handler = createHandler({ socketPath: '/nonexistent.sock', attachmentDir })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+    const handler = createHandler({ socketPath: '/nonexistent.sock', attachmentDir, password: null })
 
     const reply = await handler({ id: '2', method: 'state', params: {} })
 
@@ -253,41 +223,64 @@ describe('createHandler', () => {
     expect(body.cmux).toBe(false)
   })
 
-  it('prompt validates the body and returns 200 on success', async () => {
-    fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: {
-          version: '0.8.2',
-          protocol: 20,
-          panes: [],
-          agents: [],
-        },
-      }),
-      'agent.prompt': () => ({ type: 'agent_prompted', agent: { terminal_title_stripped: 'agent' } }),
-    })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+  it('state surfaces access denied legibly as cmux:false, not a crash', async () => {
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+    fake = await startFakeCmux({}, { password: 'secret' })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: 'wrong' })
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const reply = await handler({ id: '2b', method: 'state', params: {} })
+
+    expect(reply.status).toBe(200)
+    const body = reply.body as Record<string, unknown>
+    expect(body).toMatchObject({ cmux: false, reason: 'access_denied' })
+  })
+
+  it('prompt validates the body, pastes into the resolved surface and returns 200', async () => {
+    fake = await startFakeCmux({
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: true }),
+    })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({
       id: '3',
       method: 'prompt',
-      params: { target: 'w1:p1', prompt: 'test prompt', element },
+      params: { target: 'surf1', prompt: 'test prompt', element },
     })
 
     expect(reply.status).toBe(200)
     const body = reply.body as Record<string, unknown>
     expect(body.ok).toBe(true)
+    expect(body.submitted).toBe(true)
 
-    const sent = fake.received.find((r) => r.method === 'agent.prompt')
+    const sent = fake.received.find((r) => r.method === 'terminal.paste')
+    expect(sent?.params).toMatchObject({ workspace_id: 'w1', surface_id: 'surf1', submit_key: 'return' })
     const text = sent?.params.text as string
     expect(text).toContain('[cmux-picker]')
   })
 
+  it('prompt returns 200 with submitted:false and a submit_error, not an error status', async () => {
+    fake = await startFakeCmux({
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: false, submit_error: 'surface busy' }),
+    })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
+    const reply = await handler({ id: '3b', method: 'prompt', params: { target: 'surf1', prompt: 'test', element } })
+
+    expect(reply.status).toBe(200)
+    const body = reply.body as Record<string, unknown>
+    expect(body.submitted).toBe(false)
+    expect(body.submit_error).toBe('surface busy')
+  })
+
   it('prompt returns 400 for invalid body', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({
       id: '4',
       method: 'prompt',
@@ -301,20 +294,18 @@ describe('createHandler', () => {
 
   it('prompt with screenshotPng writes the file', async () => {
     fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: { version: '0.8.2', protocol: 20, panes: [], agents: [] },
-      }),
-      'agent.prompt': () => ({ type: 'agent_prompted', agent: { terminal_title_stripped: 'agent' } }),
+      'system.tree': treeWithSurface,
+      'terminal.paste': () => ({ workspace_id: 'w1', surface_id: 'surf1', submitted: true }),
     })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
     const screenshotPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({
       id: '5',
       method: 'prompt',
-      params: { target: 'w1:p1', prompt: 'test', element, screenshotPng },
+      params: { target: 'surf1', prompt: 'test', element, screenshotPng },
     })
 
     expect(reply.status).toBe(200)
@@ -322,78 +313,55 @@ describe('createHandler', () => {
     expect(body.screenshot).toBeTruthy()
   })
 
-  it('prompt returns 409 when agent.prompt errors with agent_blocked', async () => {
-    fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: { version: '0.8.2', protocol: 20, panes: [], agents: [] },
-      }),
-      'agent.prompt': () => ({ __error: { code: 'agent_blocked', message: 'busy' } }),
-    })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+  it('prompt returns 409 when the target surface is not found in the tree', async () => {
+    fake = await startFakeCmux({ 'system.tree': treeWithSurface })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
-    const reply = await handler({
-      id: '6',
-      method: 'prompt',
-      params: { target: 'w1:p1', prompt: 'test', element },
-    })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
+    const reply = await handler({ id: '6', method: 'prompt', params: { target: 'nope', prompt: 'test', element } })
 
     expect(reply.status).toBe(409)
   })
 
-  it('spawn with mode here returns 200 and splits the pane', async () => {
+  it('spawn with mode here returns 200 and splits the focused surface', async () => {
+    stateDir = await tempStateDir({ surfaceId: 'surf-new', sessionId: 'sess1', lifecycle: 'idle' })
     fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: {
-          version: '0.8.2',
-          protocol: 20,
-          focused_pane_id: 'w1:p1',
-          panes: [{ pane_id: 'w1:p1', cwd: '/tmp/proj' }],
-        },
-      }),
-      'pane.split': () => ({ pane: { pane_id: 'w1:p9' } }),
-      'agent.start': () => ({ agent: { pane_id: 'w1:p9' } }),
+      'system.tree': treeWithSurface,
+      'extension.sidebar.snapshot': () => ({ workspaces: [{ id: 'w1', current_directory: '/tmp/proj' }] }),
+      'surface.split': () => ({ surface_id: 'surf-new' }),
     })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
-    const reply = await handler({
-      id: '7',
-      method: 'spawn',
-      params: { mode: 'here' },
-    })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
+    const reply = await withStateDir(stateDir, () => handler({ id: '7', method: 'spawn', params: { mode: 'here' } }))
 
     expect(reply.status).toBe(200)
     const body = reply.body as Record<string, unknown>
     expect(body.ok).toBe(true)
+    expect(body.pane_id).toBe('surf-new')
 
-    const split = fake.received.find((r) => r.method === 'pane.split')
-    expect(split?.params.target_pane_id).toBe('w1:p1')
+    const split = fake.received.find((r) => r.method === 'surface.split')
+    expect(split?.params).toMatchObject({ surface_id: 'surf1', workspace_id: 'w1' })
   })
 
-  it('spawn returns 409 when focused_pane_id is missing', async () => {
+  it('spawn returns 409 when nothing is focused to split next to', async () => {
     fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: { version: '0.8.2', protocol: 20, panes: [] },
-      }),
+      'system.tree': () => ({ windows: [] }),
+      'extension.sidebar.snapshot': () => ({ workspaces: [] }),
     })
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
-    const reply = await handler({
-      id: '8',
-      method: 'spawn',
-      params: { mode: 'here' },
-    })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
+    const reply = await handler({ id: '8', method: 'spawn', params: { mode: 'here' } })
 
     expect(reply.status).toBe(409)
   })
 
   it('spawn validates the request and returns 400 for invalid body', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({
       id: '9',
       method: 'spawn',
@@ -407,9 +375,9 @@ describe('createHandler', () => {
 
   it('unknown method returns 404', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({ id: '10', method: 'unknown_method', params: {} })
 
     expect(reply.status).toBe(404)
@@ -419,9 +387,9 @@ describe('createHandler', () => {
 
   it('non-object message returns 400 invalid_request', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler('not an object')
 
     expect(reply.status).toBe(400)
@@ -432,9 +400,9 @@ describe('createHandler', () => {
 
   it('message without id returns 400 with null id', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({ method: 'state', params: {} })
 
     expect(reply.status).toBe(400)
@@ -443,13 +411,25 @@ describe('createHandler', () => {
 
   it('message without method returns 400', async () => {
     fake = await startFakeCmux({})
-    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 
-    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir })
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: null })
     const reply = await handler({ id: '11', params: {} })
 
     expect(reply.status).toBe(400)
     expect(reply.id).toBe('11')
+  })
+
+  it('threads the resolved password into the socket calls: wrong password surfaces as access_denied, not a hang', async () => {
+    fake = await startFakeCmux({ 'system.tree': treeWithSurface }, { password: 'secret' })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
+
+    const handler = createHandler({ socketPath: fake.socketPath, attachmentDir, password: 'wrong' })
+    const reply = await handler({ id: '12', method: 'prompt', params: { target: 'surf1', prompt: 'test', element } })
+
+    expect(reply.status).toBe(403)
+    const body = reply.body as Record<string, unknown>
+    expect(body.error).toBe('access_denied')
   })
 })
 
@@ -468,9 +448,9 @@ describe('host smoke test', () => {
     const { spawn } = await import('node:child_process')
 
     fake = await startFakeCmux({
-      'session.snapshot': () => ({
-        snapshot: { version: '0.8.2', protocol: 20, panes: [], agents: [] },
-      }),
+      'system.capabilities': () => CAPABILITIES,
+      'system.tree': () => ({ windows: [] }),
+      'extension.sidebar.snapshot': () => ({ workspaces: [] }),
     })
 
     const proc = spawn(process.execPath, [hostPath], {

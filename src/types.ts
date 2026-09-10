@@ -28,7 +28,9 @@ export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 
 /** One cmux agent as shown in the popup */
 export interface AgentRow {
+  /** cmux surface UUID (a terminal surface within a workspace) */
   pane_id: string
+  /** cmux workspace UUID */
   workspace_id: string
   agent_status: AgentStatus
   agent: string | null
@@ -41,6 +43,7 @@ export interface AgentRow {
 
 /** One cmux workspace */
 export interface WorkspaceRow {
+  /** cmux workspace UUID */
   workspace_id: string
   label: string | null
   number: number | null
@@ -51,8 +54,8 @@ export interface WorkspaceRow {
 export type StateResponse =
   | {
       cmux: true
+      /** cmux version string from system.capabilities, or '' when it reported none */
       version: string
-      protocol: number
       workspaceId: string | null
       paneId: string | null
       workspaces: WorkspaceRow[]
@@ -81,6 +84,10 @@ export interface PromptResponse {
   pane_id: string | null
   /** Absolute path to the captured screenshot, or null when none was captured */
   screenshot: string | null
+  /** Whether terminal.paste submitted the text, or left it sitting unsubmitted at the prompt */
+  submitted: boolean
+  /** cmux's own explanation when submitted is false, else null */
+  submit_error: string | null
 }
 
 /** Request body for POST /__cmux/spawn */

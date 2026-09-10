@@ -2,7 +2,7 @@ import { readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect, test } from '@playwright/test'
-import type { Harness } from './helpers/extension.ts'
+import type { Harness, HookSessionFixture, WorkspaceFixture } from './helpers/extension.ts'
 import { launchExtension, triggerPick, pickSaveButton } from './helpers/extension.ts'
 
 test.skip(!process.env.STORE_ASSETS, 'set STORE_ASSETS=1 to regenerate the Chrome Web Store assets')
@@ -33,30 +33,37 @@ input,select{width:100%;padding:10px 12px;border:1px solid #cfd2df;border-radius
 <label for="bio">Bio</label><input id="bio" placeholder="A line about you">
 <div class="actions"><button id="save" class="btn btn-primary" type="button">Save changes</button><button class="btn" type="button">Cancel</button></div></form></section></main></body></html>`
 
-const STORE_SNAPSHOT = {
-  type: 'session_snapshot',
-  snapshot: {
-    version: '0.9.0',
-    protocol: 20,
-    focused_workspace_id: 'w1',
-    focused_pane_id: 'w1:p1',
-    workspaces: [
-      { workspace_id: 'w1', label: 'webapp', number: 1, focused: true },
-      { workspace_id: 'w2', label: 'api', number: 2, focused: false },
-    ],
-    tabs: [],
-    layouts: [],
-    panes: [
-      { pane_id: 'w1:p1', workspace_id: 'w1', focused: true, cwd: '/Users/sam/webapp' },
-      { pane_id: 'w2:p1', workspace_id: 'w2', focused: false, cwd: '/Users/sam/api' },
-    ],
-    agents: [
-      { pane_id: 'w1:p2', workspace_id: 'w1', agent_status: 'idle', focused: false, agent: 'claude', cwd: '/Users/sam/webapp', terminal_title_stripped: 'Settings page polish', tokens: { branch: 'feat/settings' }, agent_session: { value: 's1' } },
-      { pane_id: 'w1:p3', workspace_id: 'w1', agent_status: 'working', focused: false, agent: 'codex', cwd: '/Users/sam/webapp', terminal_title_stripped: 'Checkout redesign', tokens: { branch: 'feat/checkout' }, agent_session: { value: 's2' } },
-      { pane_id: 'w2:p2', workspace_id: 'w2', agent_status: 'idle', focused: false, agent: 'claude', cwd: '/Users/sam/api', terminal_title_stripped: 'Rate limiter', tokens: { branch: 'main' }, agent_session: { value: 's3' } },
+// Two workspaces: "webapp" (focused, the one "+ agent here" would split) hosting a claude and a
+// codex surface, and "api" hosting a second claude surface elsewhere.
+const STORE_WORKSPACES: WorkspaceFixture[] = [
+  {
+    id: 'w1',
+    title: 'webapp',
+    index: 0,
+    selected: true,
+    currentDirectory: '/Users/sam/webapp',
+    branch: 'feat/settings',
+    surfaces: [
+      { id: 'sf-claude-1', title: 'Settings page polish', focused: true },
+      { id: 'sf-codex-1', title: 'Checkout redesign', focused: false },
     ],
   },
-}
+  {
+    id: 'w2',
+    title: 'api',
+    index: 1,
+    selected: false,
+    currentDirectory: '/Users/sam/api',
+    branch: 'main',
+    surfaces: [{ id: 'sf-claude-2', title: 'Rate limiter', focused: false }],
+  },
+]
+
+const STORE_HOOK_SESSIONS: HookSessionFixture[] = [
+  { agent: 'claude', sessionId: 's1', workspaceId: 'w1', surfaceId: 'sf-claude-1', cwd: '/Users/sam/webapp', title: 'Settings page polish', lifecycle: 'idle' },
+  { agent: 'codex', sessionId: 's2', workspaceId: 'w1', surfaceId: 'sf-codex-1', cwd: '/Users/sam/webapp', title: 'Checkout redesign', lifecycle: 'running' },
+  { agent: 'claude', sessionId: 's3', workspaceId: 'w2', surfaceId: 'sf-claude-2', cwd: '/Users/sam/api', title: 'Rate limiter', lifecycle: 'idle' },
+]
 
 function pngSize(path: string): { w: number; h: number } {
   const buf = readFileSync(path)
@@ -75,7 +82,7 @@ test.afterEach(async () => {
 })
 
 test('screenshots', async () => {
-  harness = await launchExtension({ snapshot: () => STORE_SNAPSHOT, html: STORE_PAGE })
+  harness = await launchExtension({ workspaces: STORE_WORKSPACES, hookSessions: STORE_HOOK_SESSIONS, html: STORE_PAGE })
   const { context, page } = harness
 
   await page.setViewportSize({ width: 1280, height: 800 })

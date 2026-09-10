@@ -1,0 +1,29 @@
+{
+  "sessions": {
+    "7e4c7f5b-96ce-4b8a-af2c-264aa615a4b3": {
+      "agentLifecycle": "unknown",
+      "cwd": "/Users/dev",
+      "isRestorable": false,
+      "launchCommand": {
+        "arguments": [
+          "/Users/dev/.local/bin/claude"
+        ],
+        "capturedAt": 1788988738.362459,
+        "executablePath": "/Users/dev/.local/bin/claude",
+        "launcher": "claude",
+        "source": "environment",
+        "workingDirectory": "/Users/dev"
+      },
+      "pid": 62164,
+      "pidStartMicroseconds": 401661,
+      "pidStartSeconds": 1788988701,
+      "sessionId": "7e4c7f5b-96ce-4b8a-af2c-264aa615a4b3",
+      "startedAt": 1788988738.3728318,
+      "surfaceId": "6D2FEC4E-203A-41FC-B0F1-F7D72F2EBDF5",
+      "transcriptPath": "/Users/dev/.claude/projects/-Users-gatto/7e4c7f5b-96ce-4b8a-af2c-264aa615a4b3.jsonl",
+      "updatedAt": 1788988738.3728318,
+      "workspaceId": "C079048E-E07E-4D6D-86AB-B15E6C887704"
+    }
+  },
+  "version": 1
+}

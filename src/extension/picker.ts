@@ -40,6 +40,14 @@ const MAX_SELECTION = 5
 const MAX_DEPTH = 3
 const MAX_LINES = 60
 
+/**
+ * Grace window before the in-flight poll accepts a settled status it never saw pass through
+ * 'working'. cmux only reports 'working' after Claude Code's prompt-submit hook runs, which
+ * happens asynchronously in a separate CLI process, so a poll can land on an already-settled
+ * (still 'idle' from before the paste) status well after the prompt went out.
+ */
+const INFLIGHT_STALE_GRACE_MS = 15000
+
 /** Debug/bench API exposed on window.__cmux */
 export interface CmuxApi {
   version: string
@@ -109,6 +117,23 @@ function writeShotPref(checked: boolean): void {
   } catch {
     // storage unavailable (private mode, quota) - preference just won't persist
   }
+}
+
+/**
+ * Explains a StateResponse.reason for the not-reachable notice, naming the fix for the
+ * cases the user can act on; unrecognized reasons fall back to showing the raw code.
+ */
+function unreachableNotice(reason: string): string {
+  if (reason === 'access_denied') {
+    return 'cmux not reachable: the cmux control socket refuses external clients, set Settings > Automation to "Automation mode" or "Password mode". Enter copies the prompt'
+  }
+  if (reason === 'no_socket') {
+    return 'cmux not reachable: cmux is not running. Enter copies the prompt'
+  }
+  if (reason === 'capabilities') {
+    return 'cmux not reachable: the installed cmux is too old. Enter copies the prompt'
+  }
+  return `cmux not reachable (${reason}): Enter copies the prompt`
 }
 
 function elementLabel(el: Element): string {
@@ -794,7 +819,7 @@ export function mount(relay: Relay): void {
             return
           }
           const settled = row.agent_status === 'idle' || row.agent_status === 'done' || row.agent_status === 'blocked'
-          if (!settled || (!sawWorking && Date.now() - startedAt < 5000)) return
+          if (!settled || (!sawWorking && Date.now() - startedAt < INFLIGHT_STALE_GRACE_MS)) return
 
           if (row.agent_status === 'blocked') settleInflightBlocked()
           else settleInflightFinished()
@@ -909,6 +934,7 @@ export function mount(relay: Relay): void {
 
   function showAgentsNotice(text: string): void {
     agentsNotice.textContent = text
+    agentsNotice.title = text
     agentsNotice.hidden = false
     toRow.hidden = true
     clampPopup()
@@ -1090,7 +1116,7 @@ export function mount(relay: Relay): void {
     if (!state.cmux) {
       selectableAgentIds = []
       selectedPaneId = null
-      showAgentsNotice(`cmux not reachable (${state.reason}): Enter copies the prompt`)
+      showAgentsNotice(unreachableNotice(state.reason))
       updateSelection()
       clampPopup()
       return
@@ -1362,6 +1388,18 @@ export function mount(relay: Relay): void {
 
       if (res.status === 200) {
         const data = res.body as PromptResponse
+
+        if (!data.submitted) {
+          // Pasted into the agent's prompt but not submitted: no settle state will ever arrive
+          // for it, and sending again would paste the text a second time on top of the first.
+          if (inflightPaneId === target) clearInflight()
+          writeLast({ pane_id: target, session: findSession(target) })
+          const reasonSuffix = data.submit_error !== null ? ` (${data.submit_error})` : ''
+          showToast(`Waiting at the prompt in cmux, press Enter there to send it${reasonSuffix}`, true)
+          close()
+          return
+        }
+
         const sentPaneId = data.pane_id ?? target
         const stillTracking = inflightPaneId === target
         if (stillTracking && !inflightSettled) renderInflightChip()
@@ -1375,7 +1413,7 @@ export function mount(relay: Relay): void {
       if (inflightPaneId === target) clearInflight()
 
       if (res.status === 409) {
-        showToast('Agent is waiting at a dialog in cmux, answer it first', true)
+        showToast('Agent is not available in cmux right now, try again', true)
         reopenAfterError()
         return
       }
