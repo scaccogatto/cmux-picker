@@ -17,8 +17,8 @@ sources:
 
 ## Cutting a release
 
-1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. For the first release both start at `0.0.0` (this is the initial port from herdr-picker); increment to the intended first version. Nothing in `scripts`, `ci.yml`, or `release.yml` checks that the two match; keeping them in sync is a convention, not something enforced.
-2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries into a new dated section for the version. There is no prior dated section yet: this repo has not cut a release.
+1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. Nothing in `scripts`, `ci.yml`, or `release.yml` checks that the two match; keeping them in sync is a convention, not something enforced.
+2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries into a new dated section for the version. `0.1.0` (2026-09-10) is the first.
 3. **Commit, tag, push the tag:**
    ```sh
    git add package.json extension/manifest.json CHANGELOG.md
@@ -39,10 +39,14 @@ Triggers on a `v*` tag push or `workflow_dispatch`. Steps, in order: `npm ci`, `
 
 ## One-time trusted-publishing bootstrap
 
-A trusted publisher attaches to a package that already exists (npm/cli#8544 tracks first-publish support), so `0.1.0` has to be published by hand, once, with a maintainer's own npm account and 2FA:
+**Status: done on 2026-09-10. `cmux-picker@0.1.0` is on the registry (`time.created` 10:32:48Z, published by hand from the working tree at `7ad29ae`) and the GitHub Actions trusted publisher was configured on npmjs.com the same day. Nothing verifies the configuration end to end until a version bump actually reaches `release.yml`: the `v0.1.0` run skipped its publish step because `0.1.0` was already on the registry. The first real proof is `0.1.1`. If that run fails, read the failure code before touching anything: `package not found` in the OIDC exchange means the publisher config does not match the run (org, repo, workflow filename, environment), and `E403 OIDC permission denied for this action` means the config allows only `npm stage publish` while `release.yml` runs `npm publish`.**
+
+A trusted publisher attaches to a package that already exists (npm/cli#8544 tracks first-publish support), so `0.1.0` had to be published by hand, once, with a maintainer's own npm account and 2FA:
 
 1. `npm login` (browser flow).
-2. From a clean checkout of the `v0.1.0` tag: `npm ci`, then `npm publish`. `prepublishOnly` runs typecheck, test, and build first; npm asks for 2FA in the browser. No `--provenance` here; only CI can attest that.
+2. From a clean checkout of the `v0.1.0` tag: `npm ci`, then `npm publish`. `prepublishOnly` runs typecheck, test, and build first. No `--provenance` here; only CI can attest that.
+
+   **2FA is the friction here.** `npm publish` run from a non-interactive shell (an agent's `Bash` tool, a script) does not wait on npm's browser flow: it prints the `https://www.npmjs.com/auth/cli/<id>` URL and exits immediately with `EOTP`. Either run it from a real terminal, or pass a code from an authenticator app with `npm publish --otp=<code>`. After a successful publish, `npm view <name> version` can still answer `E404` for a minute; `npm publish` answering `You cannot publish over the previously published versions` is the faster confirmation.
 3. On npmjs.com: package `cmux-picker`, Settings, Trusted publishing, GitHub Actions:
    - Organization or user: `scaccogatto`
    - Repository: `cmux-picker`
@@ -51,7 +55,7 @@ A trusted publisher attaches to a package that already exists (npm/cli#8544 trac
    - Allowed actions: also permit direct publishing with `npm publish`. Configurations created after 2026-09-03 default to `npm stage publish` only, and `release.yml` runs `npm publish`: without this the OIDC exchange succeeds and the PUT fails with `E403 OIDC permission denied for this action`.
 4. Then Publishing access, "Require two-factor authentication and disallow tokens," so no token can ever publish this package again; trusted publishers keep working, they use OIDC tokens, not npm tokens.
 5. `npm logout` (removes the login token from `~/.npmrc`).
-6. Push the `v0.1.0` tag (from "Cutting a release" above) **after** this bootstrap, not before. Pushed early, `release.yml`'s version-check step finds `0.1.0` not yet on the registry, so its publish step still runs `npm publish --provenance`, but no trusted publisher is configured yet and that run fails; it does not double-publish, it just fails red until re-triggered (`workflow_dispatch`) after the bootstrap above. Pushed after, the check finds `0.1.0` already on the registry and skips the publish step cleanly. Every later version is published by the workflow over OIDC, with provenance.
+6. Push the `v0.1.0` tag (from "Cutting a release" above) after the hand publish. Done on 2026-09-10: the Release run on `v0.1.0` found `0.1.0` already on the registry, skipped its publish step and went green, which is the intended outcome and not a proof that trusted publishing works yet. Pushed early, `release.yml`'s version-check step finds `0.1.0` not yet on the registry, so its publish step still runs `npm publish --provenance`, but no trusted publisher is configured yet and that run fails; it does not double-publish, it just fails red until re-triggered (`workflow_dispatch`) after the bootstrap above. Pushed after, the check finds `0.1.0` already on the registry and skips the publish step cleanly. Every later version is published by the workflow over OIDC, with provenance.
 
 Nothing from this bootstrap is stored in the repo, in GitHub secrets, or on any machine afterward.
 
