@@ -20,3 +20,5 @@ All notable changes to this project are documented here. Conventional Commits; a
 - Remote workspaces filtered out: agents in remote or cloud workspaces do not appear; local workspaces only (the host cannot read attachment files on a remote machine).
 - Degradation: host not installed, cmux down or unreachable, or socket control mode set to cmuxOnly all fall back to copying the prompt to the clipboard with the reason shown in the popup; blocked agents are disabled in the list.
 - Tooling: TypeScript strict, Vite builds (host + CLI, unpacked extension), Vitest with a fake cmux socket, Playwright end-to-end loading the unpacked extension with the host wired to the fake, GitHub Actions CI and tag-driven npm release with provenance.
+- Demo: `npm run demo` serves a checked-in page (`demo/index.html`) with 18 cards, one pickable element each and the payload it should produce written next to it. `npm run demo:gif` re-records `README.md`'s hero GIF end to end against a fake cmux socket (`e2e/demo-gif.spec.ts`, needs ffmpeg).
+

@@ -154,6 +154,15 @@ One `vite.config.ts`, two modes, run together by `npm run build` (`vite build &&
 
 `allowImportingTsExtensions: true` (`tsconfig.json`) lets every `.ts` file import its siblings with a `.ts` extension; built output carries none. The manifest's `minimum_chrome_version` is `"117"`; `package.json`'s `engines.node` is `>=20`.
 
+## Demo and Capture
+
+Two checked-in artefacts exercise the picker without a real cmux:
+
+- **`demo/index.html`** plus `demo/serve.mjs` (`npm run demo`): 18 cards, one pickable element each, with the payload the picker should produce written next to it. Zero dependencies, a stdlib static server on `PORT` (default 5599). Driving it by hand needs a real cmux; the page itself only exercises the picking half.
+- **`e2e/demo-gif.spec.ts`** (`npm run demo:gif`, skipped unless `DEMO_GIF=1`): records `.github/demo.gif`, the README hero. It drives the real extension, content script and native host through `launchExtension`, against `startFakeCmux` with two workspaces and three agent sessions (idle, working, idle), so the capture is reproducible on any machine and needs no cmux. Playwright records the context to a `.webm` (viewport pinned to the recording size, 1280x800); `page.video()` names the file, not the newest one in the directory, because `launchPersistentContext` also records its initial blank page. ffmpeg converts it with a `palettegen`/`paletteuse` pair at 12 fps, scaled to 800 px wide. The test asserts the result is between 50 KB and 6 MB, which is what catches a blank recording.
+
+The `recordVideo` option on `launchExtension` exists only for this capture; every other e2e leaves it unset.
+
 ## Message Flow
 
 1. `Ctrl+B` (or the toolbar icon) fires `commands.onCommand('pick')` or `action.onClicked` in the service worker.
