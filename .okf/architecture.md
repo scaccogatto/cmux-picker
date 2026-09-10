@@ -71,6 +71,26 @@ per line. This is why `spawnAgent` waits for the agent's hook-session binding to
 appear before the picker sends anything, rather than pasting straight after
 `surface.split` / `workspace.create`.
 
+### Spawning an agent, verified against a live cmux
+
+Two findings from probing cmux 0.64.22, both of which shaped `spawnAgent`:
+
+- **`initial_input` does not start the command.** A surface created by
+  `surface.split` or `workspace.create` with `initial_input: "claude\r"` comes up
+  as a bare shell with nothing typed, and for a workspace that is not visible the
+  terminal is created later still, discarding whatever was queued. `spawnAgent`
+  therefore types the launch command into the live surface itself:
+  `surface.send_text { surface_id, text: "claude" }` then
+  `surface.send_key { surface_id, key: "enter" }`. That path was observed to start
+  the agent, including in a workspace that was never brought to the front.
+- **The hook binding appears only once the agent begins a session.** Claude Code
+  asks to trust a folder the first time it runs there and waits at that prompt, so
+  no `SessionStart` hook fires and no entry lands in
+  `~/.cmuxterm/claude-hook-sessions.json`. `waitForHookSession` times out into
+  `agent_not_ready`, and nothing is sent. That is the safe outcome: pasting a
+  prompt into a trust dialog would answer it with the prompt text. The message
+  names the trust prompt so the user knows what to do.
+
 ## Contracts
 
 **Frame format** (`native.ts`): a 4-byte little-endian length prefix (the byte count of the payload, not including the prefix) followed by that many bytes of UTF-8 JSON. `decodeFrames` parses every complete frame at the front of a buffer and leaves an incomplete trailing frame in `rest`; a length over `maxBytes` throws. `encodeFrame` does the reverse.

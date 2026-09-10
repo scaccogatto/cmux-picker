@@ -15,7 +15,7 @@ const EXTENSION_ID = extensionIdFromKey(
 )
 
 /** Methods getState gates on, mirrored from bridge.ts's (unexported) REQUIRED_METHODS */
-const REQUIRED_METHODS = ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create']
+const REQUIRED_METHODS = ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create', 'surface.send_text', 'surface.send_key']
 
 export interface RawReceived {
   method: string

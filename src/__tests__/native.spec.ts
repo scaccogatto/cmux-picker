@@ -10,7 +10,7 @@ import { startFakeCmux } from './helpers/fake-cmux.ts'
 import type { FakeCmux } from './helpers/fake-cmux.ts'
 
 const CAPABILITIES = {
-  methods: ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create'],
+  methods: ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create', 'surface.send_text', 'surface.send_key'],
   version: '0.64.22',
 }
 
@@ -329,6 +329,8 @@ describe('createHandler', () => {
       'system.tree': treeWithSurface,
       'extension.sidebar.snapshot': () => ({ workspaces: [{ id: 'w1', current_directory: '/tmp/proj' }] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
     attachmentDir = mkdtempSync(join(tmpdir(), 'cmp-att-'))
 

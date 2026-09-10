@@ -30,7 +30,6 @@ function workspace(overrides: Partial<WorkspaceRow> & { workspace_id: string }):
 function state(overrides: Partial<LiveState>): LiveState {
   return {
     cmux: true,
-    version: '0.64.22',
     workspaceId: null,
     paneId: null,
     workspaces: [],

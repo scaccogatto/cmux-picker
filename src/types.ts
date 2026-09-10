@@ -54,8 +54,6 @@ export interface WorkspaceRow {
 export type StateResponse =
   | {
       cmux: true
-      /** cmux version string from system.capabilities, or '' when it reported none */
-      version: string
       workspaceId: string | null
       paneId: string | null
       workspaces: WorkspaceRow[]

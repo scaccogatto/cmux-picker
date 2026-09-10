@@ -19,7 +19,7 @@ import { startFakeCmux } from './helpers/fake-cmux.ts'
 import type { FakeCmux } from './helpers/fake-cmux.ts'
 
 const CAPABILITIES = {
-  methods: ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create'],
+  methods: ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create', 'surface.send_text', 'surface.send_key'],
   version: '0.64.22',
 }
 
@@ -390,7 +390,7 @@ describe('getState', () => {
 
     const state = await getState(fake.socketPath, { stateDir })
 
-    expect(state).toMatchObject({ cmux: true, version: '0.64.22', workspaceId: 'w1', paneId: 'surf1', screenshot: 'available' })
+    expect(state).toMatchObject({ cmux: true, workspaceId: 'w1', paneId: 'surf1', screenshot: 'available' })
     if (state.cmux !== true) throw new Error('expected cmux:true')
     expect(state.workspaces).toEqual([{ workspace_id: 'w1', label: 'dotfiles', number: 1, focused: true }])
     expect(state.agents).toEqual([
@@ -557,7 +557,6 @@ describe('getState', () => {
 
     expect(state).toMatchObject({
       cmux: true,
-      version: '0.64.22',
       workspaceId: 'C079048E-E07E-4D6D-86AB-B15E6C887704',
       paneId: '6D2FEC4E-203A-41FC-B0F1-F7D72F2EBDF5',
     })
@@ -789,6 +788,8 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { currentDirectory: '/repo' })] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
 
     const result = await spawnAgent({ mode: 'here' }, { socketPath: fake.socketPath, stateDir, ...fastPoll })
@@ -799,7 +800,17 @@ describe('spawnAgent', () => {
     expect(result.name).toMatch(/^pick-[0-9a-f]{4}$/)
 
     const split = fake.received.find((r) => r.method === 'surface.split')
-    expect(split?.params).toEqual({ direction: 'right', surface_id: 'surf1', workspace_id: 'w1', initial_input: 'claude\r', focus: false })
+    expect(split?.params).toEqual({ direction: 'right', surface_id: 'surf1', workspace_id: 'w1', focus: false })
+    // Regression: live cmux 0.64.22 probing showed initial_input never types into the new
+    // surface (it comes up as a bare shell with nothing typed) - never put it back here.
+    expect(split?.params).not.toHaveProperty('initial_input')
+
+    // The split call, then send_text/send_key against the NEW surface (surf-new), not the
+    // focused one (surf1), in that order.
+    const spawnCalls = fake.received.filter((r) => ['surface.split', 'surface.send_text', 'surface.send_key'].includes(r.method))
+    expect(spawnCalls.map((r) => r.method)).toEqual(['surface.split', 'surface.send_text', 'surface.send_key'])
+    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
+    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
   })
 
   it('mode here honors an explicit name', async () => {
@@ -811,6 +822,8 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
 
     const result = await spawnAgent({ mode: 'here', name: 'my-agent' }, { socketPath: fake.socketPath, stateDir, ...fastPoll })
@@ -837,6 +850,8 @@ describe('spawnAgent', () => {
       'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'app', selected: true, panes: [] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { projectRootPath: '/home/me/app', currentDirectory: '/home/me/app' })] }),
       'workspace.create': () => ({ workspace_id: 'w2', surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
 
     const calls: { args: string[]; cwd: string }[] = []
@@ -859,7 +874,16 @@ describe('spawnAgent', () => {
     expect(calls[1]).toEqual({ args: ['worktree', 'add', '-b', 'feature-x', '/home/me/app-feature-x'], cwd: '/home/me/app' })
 
     const created = fake.received.find((r) => r.method === 'workspace.create')
-    expect(created?.params).toEqual({ title: 'feature-x', cwd: '/home/me/app-feature-x', initial_input: 'claude\r', focus: false })
+    expect(created?.params).toEqual({ title: 'feature-x', cwd: '/home/me/app-feature-x', focus: false })
+    // Regression: live cmux 0.64.22 probing showed initial_input never types into the new
+    // surface (it comes up as a bare shell with nothing typed) - never put it back here.
+    expect(created?.params).not.toHaveProperty('initial_input')
+
+    // The create call, then send_text/send_key against the NEW surface (surf-new), in that order.
+    const spawnCalls = fake.received.filter((r) => ['workspace.create', 'surface.send_text', 'surface.send_key'].includes(r.method))
+    expect(spawnCalls.map((r) => r.method)).toEqual(['workspace.create', 'surface.send_text', 'surface.send_key'])
+    expect(spawnCalls[1]?.params).toEqual({ surface_id: 'surf-new', text: 'claude' })
+    expect(spawnCalls[2]?.params).toEqual({ surface_id: 'surf-new', key: 'enter' })
   })
 
   it('mode worktree runs worktree add without -b when the branch already exists', async () => {
@@ -870,6 +894,8 @@ describe('spawnAgent', () => {
       'system.tree': () => treeWith([{ id: 'w1', index: 0, title: 'app', selected: true, panes: [] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [sidebarWorkspace('w1', { rootPath: '/home/me/app', currentDirectory: '/home/me/app' })] }),
       'workspace.create': () => ({ workspace_id: 'w2', surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
 
     const calls: { args: string[]; cwd: string }[] = []
@@ -893,10 +919,15 @@ describe('spawnAgent', () => {
         treeWith([{ id: 'w1', index: 0, title: 'dotfiles', selected: true, panes: [pane([surfaceNode('surf1', { focused: true })])] }]),
       'extension.sidebar.snapshot': () => ({ workspaces: [] }),
       'surface.split': () => ({ surface_id: 'surf-new' }),
+      'surface.send_text': () => ({}),
+      'surface.send_key': () => ({}),
     })
 
     const promise = spawnAgent({ mode: 'here' }, { socketPath: fake.socketPath, stateDir, pollIntervalMs: 10, pollTimeoutMs: 30 })
     await expect(promise).rejects.toBeInstanceOf(CmuxError)
-    await expect(promise.catch((e) => e)).resolves.toMatchObject({ code: 'agent_not_ready' })
+    await expect(promise.catch((e) => e)).resolves.toMatchObject({
+      code: 'agent_not_ready',
+      message: expect.stringContaining('trust a folder'),
+    })
   })
 })

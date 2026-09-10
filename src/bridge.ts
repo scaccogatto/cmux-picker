@@ -23,7 +23,12 @@ import type {
 export const ATTACHMENT_DIR = join(tmpdir(), 'cmux-picker')
 
 /** cmux methods getState requires before it will report cmux: true */
-const REQUIRED_METHODS = ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create']
+/**
+ * Methods getState gates on. surface.send_text and surface.send_key are in the list
+ * because spawnAgent types the agent launch command into the new surface itself;
+ * a cmux without them would report a healthy state and only fail at spawn time.
+ */
+const REQUIRED_METHODS = ['terminal.paste', 'system.tree', 'extension.sidebar.snapshot', 'surface.split', 'workspace.create', 'surface.send_text', 'surface.send_key']
 
 function str(x: unknown): string | null {
   return typeof x === 'string' ? x : null
@@ -435,7 +440,6 @@ export async function getState(
 
     return {
       cmux: true,
-      version: str(capabilities?.version) ?? '',
       workspaceId: focusedWorkspaceId,
       paneId: focusedPaneId,
       workspaces: workspaceRows,
@@ -574,6 +578,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
 
+/** The command typed into a freshly created surface to start the agent */
+export const AGENT_LAUNCH_COMMAND = 'claude'
+
+/**
+ * Types the agent launch command into a new surface and presses Enter.
+ *
+ * Not `initial_input` on surface.split / workspace.create: probing cmux 0.64.22
+ * showed a surface created that way comes up as a bare shell with nothing typed,
+ * because the input is delivered before the shell (and, for a workspace that is
+ * not visible, the terminal itself) exists. send_text plus an explicit Enter is
+ * delivered to the live surface and does start the agent.
+ */
+async function startAgentIn(socketPath: string, surfaceId: string, reqOpts: { password?: string | null }): Promise<void> {
+  await request(socketPath, 'surface.send_text', { surface_id: surfaceId, text: AGENT_LAUNCH_COMMAND }, undefined, reqOpts)
+  await request(socketPath, 'surface.send_key', { surface_id: surfaceId, key: 'enter' }, undefined, reqOpts)
+}
+
 /**
  * Polls the hook session stores every intervalMs until the given surface id
  * shows up in readHookSessions' surface map (folded from the store's
@@ -591,7 +612,11 @@ async function waitForHookSession(
     if (sessions.has(surfaceId)) return
 
     if (Date.now() >= deadline) {
-      throw new CmuxError('agent_not_ready', `no cmux hook session bound to surface ${surfaceId} within ${opts.timeoutMs}ms`)
+      throw new CmuxError(
+        'agent_not_ready',
+        `the agent started in surface ${surfaceId} but has not begun a session within ${opts.timeoutMs}ms, ` +
+          'so nothing was sent to it. Claude Code asks to trust a folder the first time it runs there: answer that in cmux, then send again.',
+      )
     }
 
     await sleep(opts.intervalMs)
@@ -640,7 +665,7 @@ export async function spawnAgent(
       await request(
         opts.socketPath,
         'surface.split',
-        { direction: 'right', surface_id: focusedSurfaceId, workspace_id: focusedWorkspaceId, initial_input: 'claude\r', focus: false },
+        { direction: 'right', surface_id: focusedSurfaceId, workspace_id: focusedWorkspaceId, focus: false },
         undefined,
         reqOpts,
       ),
@@ -672,7 +697,7 @@ export async function spawnAgent(
       await request(
         opts.socketPath,
         'workspace.create',
-        { title: name, cwd: path, initial_input: 'claude\r', focus: false },
+        { title: name, cwd: path, focus: false },
         undefined,
         reqOpts,
       ),
@@ -684,6 +709,7 @@ export async function spawnAgent(
     newWorkspaceId = createResult ? str(createResult.workspace_id) : null
   }
 
+  await startAgentIn(opts.socketPath, newSurfaceId, reqOpts)
   await waitForHookSession(stateDir, newSurfaceId, { intervalMs: pollIntervalMs, timeoutMs: pollTimeoutMs })
 
   return { ok: true, pane_id: newSurfaceId, name, workspace_id: newWorkspaceId }

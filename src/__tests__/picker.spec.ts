@@ -11,7 +11,6 @@ const fakeRelay = (): { relay: Relay; calls: Record<string, number | unknown[]> 
       calls.state++
       return {
         cmux: true,
-        version: '0.64.22',
         workspaceId: 'w1',
         paneId: 'w1:p1',
         workspaces: [{ workspace_id: 'w1', label: 'app', number: 1, focused: true }],

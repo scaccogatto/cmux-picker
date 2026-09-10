@@ -38,7 +38,8 @@ The popup lists agents cmux is tracking. Agent status (idle, working, blocked) c
 
 - **Tracked agents:** Claude Code connected through cmux's own `cmux-claude-wrapper` (with the Claude Code integration enabled in cmux Settings), or other agents after `cmux hooks setup <agent>`.
 - **Untracked terminals:** still appear as targets, with status `unknown`.
-- **The spawn rows** (`+ agent here`, `+ agent in worktree`): reserve a new surface for an agent. They need cmux's Claude Code integration configured; without it, the request times out waiting for the hook binding.
+- **The spawn rows** (`+ agent here`, `+ agent in worktree`): create the surface, type `claude` into it and press Enter, then wait for cmux to bind an agent session to it before anything is sent. They need cmux's Claude Code integration configured; without it the request times out waiting for that binding and nothing is sent.
+- **First run in a folder:** Claude Code asks to trust the folder and waits at that prompt, so no session starts and the spawn reports `agent_not_ready`. Answer the prompt in cmux, then send again. The prompt is deliberately not pasted into that dialog.
 
 ## Use
 
