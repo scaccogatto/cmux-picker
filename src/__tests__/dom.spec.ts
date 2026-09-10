@@ -450,7 +450,7 @@ describe('truncateStart', () => {
   })
 
   it('truncates a long value from the start, keeping the tail intact', () => {
-    const long = '../../../../../../../Users/gatto/Developer/scaccogatto/vite-plugin-herdr/demo/Bench.vue:17:7'
+    const long = '../../../../../../../Users/dev/projects/some-app/src/components/Bench.vue:17:7'
     const result = truncateStart(long, 60)
     expect(result.length).toBe(60)
     expect(result.startsWith('…')).toBe(true)
