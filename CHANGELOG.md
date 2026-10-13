@@ -1,6 +1,24 @@
 # Changelog
 
-All notable changes to this project are documented here. Conventional Commits; a release is a `v*` tag, published from CI over npm trusted publishing.
+All notable changes to this project are documented here, in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Conventional Commits; a release is a `v*` tag, published from CI over npm trusted publishing.
+
+## [Unreleased]
+
+### Breaking Changes
+
+- Node 24 or newer is required (`engines.node` `>=24`, was `>=20`). Node 20 is end of life and Node 24 is the only version CI tests. Re-run `npx cmux-picker install-host` with Node 24 so `host.sh` points at it.
+
+### Bug Fixes
+
+- Per-site preferences (last targeted agent, screenshot switch) are kept in the extension's own `chrome.storage.local`, keyed by origin, instead of the page's localStorage, which page scripts could read and overwrite. The extension now requests the `storage` permission (no install warning). Preferences saved by 0.1.0 are not carried over: the old localStorage copies are deleted, so the first pick on each site starts from the defaults.
+- `install-host` writes `host.sh` with every path single-quoted, so a `$`, a backtick or a quote in the socket path, the node path or the config directory no longer breaks the script or expands inside it.
+
+### Build/Tooling
+
+- Switched to TypeScript 7 and oxlint, refreshed dev dependencies.
+- Release workflow: runs only on `v*` tags (no manual dispatch), runs lint, typecheck, coverage, build and e2e on the tagged commit before publishing, fails when the tag does not match the `package.json` and `extension/manifest.json` versions, uses the npm bundled with Node 24 instead of installing `npm@latest`, verifies the provenance attestations after publishing, and attaches the unpacked extension as a zip to the GitHub Release.
+- CI fails when `package.json` and `extension/manifest.json` versions differ.
+- Dependabot auto-merge keys on the PR author, skips major bumps and minor bumps of 0.x dependencies, and no longer checks out the PR.
 
 ## [0.1.0] - 2026-09-10
 

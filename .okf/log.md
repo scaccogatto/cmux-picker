@@ -1,5 +1,9 @@
 # Update Log
 
+## 2026-10-13
+
+Hardening pass from an advisory audit. Per-site preferences moved from the page's localStorage to `chrome.storage.local` keyed by origin (`src/extension/prefs.ts`, new `storage` permission), and the old localStorage keys are removed on the next run. `host.sh` now single-quotes every baked-in value (`shQuote` in `cli.ts`). `engines.node` and the Vite node target moved to 24, the only Node CI tests. `release.yml` lost `workflow_dispatch` and `npm install -g npm@latest`, runs the whole CI suite through `ci.yml` as a reusable workflow, checks the tag against `package.json` and `manifest.json`, verifies provenance attestations after a publish, and attaches the unpacked-extension zip to a GitHub Release. The publish job stays without a GitHub environment because the npm trusted publisher has none. The Dependabot auto-merge job no longer checks out the PR, keys on the PR author, and skips majors and 0.x minors per dependency.
+
 ## 2026-09-10
 
 An adversarial review (95 agents, three verifiers per finding) produced 15 upheld findings.
