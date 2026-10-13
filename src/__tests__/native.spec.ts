@@ -138,7 +138,7 @@ describe('encodeFrame', () => {
   })
 
   it('returns a reply_too_large error when payload exceeds MAX_REPLY_BYTES', () => {
-    const hugeArray = new Array(MAX_REPLY_BYTES).fill('x')
+    const hugeArray = Array.from({ length: MAX_REPLY_BYTES }, () => 'x')
     const value = { id: 'big', data: hugeArray }
     const frame = encodeFrame(value)
 

@@ -180,7 +180,7 @@ npm run build          # host + CLI, then extension
 npm run demo           # demo page: open the printed URL, press Ctrl+B, pick a card
 npm run demo:gif       # re-record .github/demo.gif (needs ffmpeg on PATH)
 npm run typecheck      # tsc --noEmit
-npm run lint           # eslint
+npm run lint           # oxlint
 npm run coverage       # vitest --coverage
 npm run e2e            # playwright (loads unpacked extension, fake cmux socket)
 ```

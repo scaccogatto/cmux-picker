@@ -7,7 +7,7 @@ Chrome extension (Manifest V3) plus a native messaging host: pick a DOM element 
 - `npm run build`: Build the native host and the CLI (`dist/host.js`, `dist/cli.js`), then the unpacked extension (`dist/extension/`)
 - `npm run typecheck`: Run TypeScript strict checks
 - `npm run coverage`: Run tests with coverage
-- `npm run lint`: Check code style with ESLint
+- `npm run lint`: Check code style with oxlint
 - `npm run e2e`: Run Playwright end-to-end tests (loads the unpacked extension in Chromium)
 
 ## Development conventions
