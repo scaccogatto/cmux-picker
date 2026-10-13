@@ -30,15 +30,23 @@ export function hostManifest(opts: { hostScript: string; extensionId: string }):
   }
 }
 
+/**
+ * Quotes a value as one POSIX shell word: single quotes, inside which nothing expands
+ * (`$`, backticks, `"`, `\`), with each embedded `'` written as `'\''`
+ */
+export function shQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 /** Shell wrapper script that sets env and execs the host */
 export function wrapperScript(opts: { nodePath: string; hostJs: string; socketPath?: string }): string {
   const lines: string[] = ['#!/bin/sh']
 
   if (opts.socketPath !== undefined) {
-    lines.push(`export CMUX_SOCKET_PATH="${opts.socketPath.replace(/"/g, '\\"')}"`)
+    lines.push(`export CMUX_SOCKET_PATH=${shQuote(opts.socketPath)}`)
   }
 
-  lines.push(`exec "${opts.nodePath}" "${opts.hostJs}"`)
+  lines.push(`exec ${shQuote(opts.nodePath)} ${shQuote(opts.hostJs)}`)
   lines.push('')
 
   return lines.join('\n')

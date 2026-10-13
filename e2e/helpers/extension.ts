@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { BrowserContext, Page } from '@playwright/test'
 import { chromium, expect } from '@playwright/test'
-import { extensionIdFromKey, hostManifest, wrapperScript } from '../../src/cli.ts'
+import { extensionIdFromKey, hostManifest, shQuote, wrapperScript } from '../../src/cli.ts'
 import { HOST_NAME } from '../../src/host-name.ts'
 import type { FakeCmux } from '../../src/__tests__/helpers/fake-cmux.ts'
 import { startFakeCmux } from '../../src/__tests__/helpers/fake-cmux.ts'
@@ -311,7 +311,7 @@ export async function launchExtension(opts: {
     // into the generated wrapper here rather than growing the shared CLI helper for tests.
     const lines = wrapper.split('\n')
     const execIdx = lines.findIndex((line) => line.startsWith('exec '))
-    const stateDirExport = `export CMUX_PICKER_STATE_DIR="${stateDir.replace(/"/g, '\\"')}"`
+    const stateDirExport = `export CMUX_PICKER_STATE_DIR=${shQuote(stateDir)}`
     const wrapperWithStateDir = (execIdx === -1 ? [...lines, stateDirExport] : [...lines.slice(0, execIdx), stateDirExport, ...lines.slice(execIdx)]).join('\n')
     writeFileSync(hostShPath, wrapperWithStateDir, 'utf8')
     chmodSync(hostShPath, 0o755)
