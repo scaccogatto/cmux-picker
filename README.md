@@ -156,21 +156,21 @@ cmux already ships `design-mode` and `react-grab` in its own browser, and they a
 - **Screenshot opt-in.** Only captured when you check the switch. Real pixels of the visible tab, cropped to the element plus a 40px margin, written under `<tmpdir>/cmux-picker/` and swept at the next host start once older than 24 hours.
 - **Page-driven UI is blocked.** The popup runs in a shadow root the page can reach, but the picker starts only from `runtime.onMessage` (which the page cannot send), and Send accepts only trusted input events.
 - **Remote workspaces filtered out.** Agents in remote or cloud workspaces do not appear in the list; the agent runs on another machine and could not read the screenshot and attachment files the native host writes on this Mac. Untracked terminals in local workspaces still appear as targets.
-- **Permissions:** `activeTab` (revoked on cross-origin navigation), `scripting`, `nativeMessaging`. No host_permissions, no `externally_connectable`.
+- **Permissions:** `activeTab` (revoked on cross-origin navigation), `scripting`, `nativeMessaging`, `storage` (per-site preferences, no install warning). No host_permissions, no `externally_connectable`.
 
 ## Requirements
 
 - macOS, for cmux itself. `install-host` also writes Chrome and Chromium manifests on Linux, but there is no cmux there to reach.
 - cmux 0.64.22 or newer, with the control socket in Automation or Password mode (Quickstart step 2).
-- Node 20 or newer. `install-host` bakes the absolute path of the node that ran it into `host.sh`, so re-run it after changing node versions.
+- Node 24 or newer (the only version CI tests). `install-host` bakes the absolute path of the node that ran it into `host.sh`, so re-run it after changing node versions.
 - Chrome or Chromium 117 or newer, with Developer mode on to load the unpacked extension.
 
 ## Limits
 
 - **One socket per install.** Pass `--socket <path>` to `install-host` to point the host at a non-default cmux socket. One path per install: re-running the installer overwrites the previous one.
 - **`activeTab` revoked on navigation.** Press `Ctrl+B` again on a new origin.
-- **No options page (yet).** Per-site preferences (screenshot enabled/disabled, last agent used) persist in `localStorage`.
-- **Not yet:** Firefox, per-site `chrome.storage`, absolutising hints against the agent's cwd.
+- **No options page (yet).** Per-site preferences (screenshot enabled/disabled, last agent used) persist in the extension's `chrome.storage.local`, keyed by origin, out of the page's reach.
+- **Not yet:** Firefox, absolutising hints against the agent's cwd.
 
 ## Development
 

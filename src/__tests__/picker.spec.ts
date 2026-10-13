@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { StateResponse, PromptResponse, SpawnResponse } from '../types.ts'
 import type { Relay, RelayReply } from '../extension/picker.ts'
 import { mount } from '../extension/picker.ts'
+import { memoryPrefStore } from '../extension/prefs.ts'
 
 const fakeRelay = (): { relay: Relay; calls: Record<string, number | unknown[]> } => {
   const calls = { state: 0, prompt: [] as unknown[], spawn: 0, capture: 0 }
@@ -75,7 +76,7 @@ beforeEach(() => {
 describe('picker.mount', () => {
   it('appends [data-cmux-host] with shadowRoot and defines window.__cmux', () => {
     const { relay } = fakeRelay()
-    mount(relay)
+    mount(relay, memoryPrefStore())
     expect(document.querySelector('[data-cmux-host]')).not.toBeNull()
     expect(document.querySelector('[data-cmux-host]')?.shadowRoot).not.toBeNull()
     expect(window.__cmux?.start).toBeDefined()
@@ -85,7 +86,7 @@ describe('picker.mount', () => {
 
   it('start() toggles cursor, inflight() is null', () => {
     const { relay } = fakeRelay()
-    mount(relay)
+    mount(relay, memoryPrefStore())
     expect(document.documentElement.style.cursor).toBe('')
     window.__cmux!.start()
     expect(document.documentElement.style.cursor).toBe('crosshair')
@@ -96,7 +97,7 @@ describe('picker.mount', () => {
 
   it('pick() shows popup, calls relay.state() once, renders agents and spawn rows', async () => {
     const { relay, calls } = fakeRelay()
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     const host = document.querySelector('[data-cmux-host]')
     const popup = host?.shadowRoot?.querySelector('.popup') as HTMLElement
@@ -123,7 +124,7 @@ describe('picker.mount', () => {
   it('isolated: an untrusted click on Send never calls relay.prompt, even with a prompt already typed via a trusted path', async () => {
     const { relay, calls } = fakeRelay()
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -144,7 +145,7 @@ describe('picker.mount', () => {
   it('isolated: an untrusted Enter keydown never calls relay.prompt, even with a prompt already typed via a trusted path', async () => {
     const { relay, calls } = fakeRelay()
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -164,7 +165,7 @@ describe('picker.mount', () => {
   it('isolated: an untrusted input event never updates the typed prompt, so a later trusted Send is refused as empty', async () => {
     const { relay, calls } = fakeRelay()
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -189,7 +190,7 @@ describe('picker.mount', () => {
   it('baseline for the isolated guard tests above: a trusted input then a trusted click do call relay.prompt', async () => {
     const { relay, calls } = fakeRelay()
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -208,7 +209,7 @@ describe('picker.mount', () => {
 
   it('close() hides popup and selection() is empty', async () => {
     const { relay } = fakeRelay()
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
     const popup = document.querySelector('[data-cmux-host]')?.shadowRoot?.querySelector('.popup') as HTMLElement
@@ -219,7 +220,7 @@ describe('picker.mount', () => {
 
   it('describe() returns ElementInfo with button#target in path', () => {
     const { relay } = fakeRelay()
-    mount(relay)
+    mount(relay, memoryPrefStore())
     const info = window.__cmux!.describe(document.querySelector('#target')!)
     expect(info.path).toContain('button#target')
     expect(info.html).toContain('data-cmux-picked')
@@ -241,7 +242,7 @@ describe('picker.mount: sending a prompt', () => {
     }
 
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -265,7 +266,7 @@ describe('picker.mount: sending a prompt', () => {
     const { relay } = fakeRelay()
 
     const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -305,7 +306,7 @@ describe('picker.mount: in-flight overlay', () => {
       }) as StateResponse
 
       const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
-      mount(relay)
+      mount(relay, memoryPrefStore())
       window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
       await vi.advanceTimersByTimeAsync(10)
 
@@ -349,7 +350,7 @@ describe('picker.mount: not-reachable notice', () => {
     const { relay } = fakeRelay()
     relay.state = async () => ({ cmux: false, reason, message: 'x' }) as StateResponse
 
-    mount(relay)
+    mount(relay, memoryPrefStore())
     window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -357,5 +358,79 @@ describe('picker.mount: not-reachable notice', () => {
     const notice = host.shadowRoot!.querySelector('.agents-notice') as HTMLElement
     expect(notice.hidden).toBe(false)
     for (const substring of expectedSubstrings) expect(notice.textContent).toContain(substring)
+  })
+})
+
+describe('picker.mount: per-site preferences', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('preselects the last agent from the extension pref store, ignoring what the page wrote to localStorage', async () => {
+    const { relay } = fakeRelay()
+    // A page script can write its own origin's localStorage: it must not steer the target
+    localStorage.setItem('cmux:last', JSON.stringify({ pane_id: 'w1:p3', session: 's2' }))
+    mount(relay, memoryPrefStore())
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    expect(host.shadowRoot!.querySelector('[data-pane-id="w1:p2"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(host.shadowRoot!.querySelector('[data-pane-id="w1:p3"]')?.getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('preselects the stored last agent when the pref store has one', async () => {
+    const { relay } = fakeRelay()
+    mount(relay, memoryPrefStore({ last: { pane_id: 'w1:p3', session: 's2' }, shot: false }))
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    expect(host.shadowRoot!.querySelector('[data-pane-id="w1:p3"]')?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('saves the targeted agent to the pref store and never to the page localStorage', async () => {
+    const { relay } = fakeRelay()
+    const prefs = memoryPrefStore()
+    const addListenerSpy = vi.spyOn(EventTarget.prototype, 'addEventListener')
+    mount(relay, prefs)
+    window.__cmux!.pick(document.querySelector('#target')!, 10, 10)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const textarea = host.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement
+    const sendBtn = host.shadowRoot!.querySelector('.send-btn') as HTMLElement
+    textarea.value = 'do the thing'
+    capturedListener(addListenerSpy, textarea, 'input')({ isTrusted: true } as unknown as Event)
+    capturedListener(addListenerSpy, sendBtn, 'click')({ isTrusted: true } as unknown as Event)
+    addListenerSpy.mockRestore()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(prefs.current().last).toEqual({ pane_id: 'w1:p2', session: 's1' })
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('restores the screenshot switch from the pref store, not from the page localStorage, and saves toggles there', async () => {
+    const { relay } = fakeRelay()
+    localStorage.setItem('cmux:shot', '1')
+    const prefs = memoryPrefStore()
+    mount(relay, prefs)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.__cmux!.screenshotEnabled()).toBe(false)
+
+    const host = document.querySelector('[data-cmux-host]')!
+    const checkbox = host.shadowRoot!.querySelector('input.switch') as HTMLInputElement
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event('change'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(prefs.current().shot).toBe(true)
+    expect(localStorage.getItem('cmux:shot')).toBe('1')
+  })
+
+  it('turns the screenshot switch on when the pref store says so', async () => {
+    const { relay } = fakeRelay()
+    mount(relay, memoryPrefStore({ last: null, shot: true }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.__cmux!.screenshotEnabled()).toBe(true)
   })
 })

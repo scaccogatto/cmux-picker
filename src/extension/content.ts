@@ -11,6 +11,7 @@ import type {
 } from '../types.ts'
 import { cropDataUrl } from './crop.ts'
 import { mount } from './picker.ts'
+import { clearLegacyLocalStorage, storagePrefStore } from './prefs.ts'
 
 // Marker to detect if the picker is already injected
 const HOST_MARKER = '[data-cmux-host]'
@@ -103,8 +104,13 @@ if (document.querySelector(HOST_MARKER) !== null) {
     },
   }
 
+  // Preferences go to extension storage keyed by origin, out of the page's reach; older
+  // versions kept them in the page's localStorage, so drop those copies
+  clearLegacyLocalStorage(localStorage)
+  const prefs = storagePrefStore(chrome.storage.local, location.origin)
+
   // Mount the picker with the relay
-  mount(relay)
+  mount(relay, prefs)
 
   // Listen for the pick command from the background script
   chrome.runtime.onMessage.addListener((message) => {
