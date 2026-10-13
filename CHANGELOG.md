@@ -1,6 +1,24 @@
 # Changelog
 
-All notable changes to this project are documented here. Conventional Commits; a release is a `v*` tag, published from CI over npm trusted publishing.
+All notable changes to this project are documented here, in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Conventional Commits; a release is a `v*` tag, published from CI over npm trusted publishing.
+
+## [Unreleased]
+
+### Breaking Changes
+
+- Node 24 or newer is required (`engines.node` `>=24`, was `>=20`). Node 20 is end of life and Node 24 is the only version CI tests. Re-run `npx cmux-picker install-host` with Node 24 so `host.sh` points at it.
+
+### Bug Fixes
+
+- Per-site preferences (last targeted agent, screenshot switch) are kept in the extension's own `chrome.storage.local`, keyed by origin, instead of the page's localStorage, which page scripts could read and overwrite. The extension now requests the `storage` permission (no install warning). Preferences saved by 0.1.0 are not carried over: the old localStorage copies are deleted, so the first pick on each site starts from the defaults.
+- `install-host` writes `host.sh` with every path single-quoted, so a `$`, a backtick or a quote in the socket path, the node path or the config directory no longer breaks the script or expands inside it.
+
+### Build/Tooling
+
+- Switched to TypeScript 7 and oxlint, refreshed dev dependencies.
+- Release workflow: runs only on `v*` tags (no manual dispatch), runs lint, typecheck, coverage, build and e2e on the tagged commit before publishing, fails when the tag does not match the `package.json` and `extension/manifest.json` versions, uses the npm bundled with Node 24 instead of installing `npm@latest`, verifies the provenance attestations after publishing, and attaches the unpacked extension as a zip to the GitHub Release.
+- CI fails when `package.json` and `extension/manifest.json` versions differ.
+- Dependabot auto-merge keys on the PR author, skips major bumps and minor bumps of 0.x dependencies, and no longer checks out the PR.
 
 ## [0.1.0] - 2026-09-10
 
@@ -15,7 +33,7 @@ All notable changes to this project are documented here. Conventional Commits; a
 - Agents: To field preselecting the last used agent, list grouped by workspace, status from cmux hook session stores (idle/working/blocked/unknown). `+ agent here` (splits cmux's focused surface) and `+ agent in worktree` (creates a sibling git worktree and a new cmux workspace); both need Claude Code integration enabled in cmux Settings. In-flight outline polls the state every 2 seconds until the agent settles.
 - Delivery: `terminal.paste` v2 method sends the prompt as one bracketed paste followed by a Return keystroke. If the paste could not be submitted, the popup shows "Waiting at the prompt in cmux, press Enter there to send it" and does not retry (which would paste twice). Unsubmitted state is a normal response, not an error.
 - Native host: 4-byte length-prefixed JSON frames over stdio, `state`/`prompt`/`spawn` routes, frame cap 16 MiB, reply cap 1 MiB, port closed by the service worker after 60 seconds idle.
-- `npx cmux-picker install-host [--socket] [--extension-id] [--browser-dir]`: copies the host to `~/.config/cmux-picker/`, writes the wrapper script with the absolute node path, registers the host manifest with Chrome and Chromium (macOS only).
+- `npx cmux-picker install-host [--socket] [--extension-id] [--browser-dir]`: copies the host to `~/.config/cmux-picker/`, writes the wrapper script with the absolute node path, registers the host manifest with Chrome and Chromium (macOS and Linux profile directories).
 - Guards: only the extension's own content scripts reach the service worker; the picker starts from a `runtime.onMessage` trigger the page cannot send, ignores untrusted click/keydown/Send events and sends only text typed through trusted input events; the host validates every request.
 - Remote workspaces filtered out: agents in remote or cloud workspaces do not appear; local workspaces only (the host cannot read attachment files on a remote machine).
 - Degradation: host not installed, cmux down or unreachable, or socket control mode set to cmuxOnly all fall back to copying the prompt to the clipboard with the reason shown in the popup; blocked agents are disabled in the list.

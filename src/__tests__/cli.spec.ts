@@ -1,5 +1,7 @@
 import { mkdtempSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +9,7 @@ import { describe, it, expect } from 'vitest'
 import {
   extensionIdFromKey,
   hostManifest,
+  shQuote,
   wrapperScript,
   browserDirs,
   configDir,
@@ -43,11 +46,19 @@ describe('hostManifest', () => {
   })
 })
 
+describe('shQuote', () => {
+  it('wraps in single quotes and escapes embedded single quotes', () => {
+    expect(shQuote('plain')).toBe(`'plain'`)
+    expect(shQuote(`it's`)).toBe(`'it'\\''s'`)
+    expect(shQuote('$(x) `y` "z"')).toBe(`'$(x) \`y\` "z"'`)
+  })
+})
+
 describe('wrapperScript', () => {
   it('generates a shell script without socket path', () => {
     const script = wrapperScript({ nodePath: '/usr/bin/node', hostJs: '/path/to/host.js' })
     expect(script).toContain('#!/bin/sh')
-    expect(script).toContain('exec "/usr/bin/node" "/path/to/host.js"')
+    expect(script).toContain(`exec '/usr/bin/node' '/path/to/host.js'`)
     expect(script).not.toContain('CMUX_SOCKET_PATH')
     expect(script.endsWith('\n')).toBe(true)
   })
@@ -58,16 +69,40 @@ describe('wrapperScript', () => {
       hostJs: '/path/to/host.js',
       socketPath: '/tmp/cmux.sock',
     })
-    expect(script).toContain('export CMUX_SOCKET_PATH="/tmp/cmux.sock"')
+    expect(script).toContain(`export CMUX_SOCKET_PATH='/tmp/cmux.sock'`)
   })
 
-  it('escapes quotes in socket path', () => {
+  it('quotes double quotes in socket path literally', () => {
     const script = wrapperScript({
       nodePath: '/usr/bin/node',
       hostJs: '/path/to/host.js',
       socketPath: '/path/"quoted"/socket.sock',
     })
-    expect(script).toContain('export CMUX_SOCKET_PATH="/path/\\"quoted\\"/socket.sock"')
+    expect(script).toContain(`export CMUX_SOCKET_PATH='/path/"quoted"/socket.sock'`)
+  })
+
+  it('passes paths with $, backticks and quotes through /bin/sh unexpanded', async () => {
+    // Every value lands in a directory whose name would run a command, or expand a variable,
+    // if the wrapper interpolated it into a double-quoted string
+    const weird = 'a $(touch pwned) `touch pwned2` $HOME \'single\' "double" \\back'
+    const root = await mkdtemp(join(tmpdir(), 'cmux-picker-sh-'))
+    const dir = join(root, weird)
+    await mkdir(dir, { recursive: true })
+    const out = join(root, 'out.txt')
+    const fakeNode = join(dir, 'node')
+    await writeFile(fakeNode, `#!/bin/sh\nprintf '%s\\n%s\\n' "$CMUX_SOCKET_PATH" "$1" > ${shQuote(out)}\n`)
+    await chmod(fakeNode, 0o755)
+    const hostJs = join(dir, 'host.js')
+    const socketPath = join(dir, 'cmux.sock')
+    const script = join(dir, 'host.sh')
+    await writeFile(script, wrapperScript({ nodePath: fakeNode, hostJs, socketPath }))
+
+    await promisify(execFile)('/bin/sh', [script], { cwd: root })
+
+    expect(await readFile(out, 'utf8')).toBe(`${socketPath}\n${hostJs}\n`)
+    expect(existsSync(join(root, 'pwned'))).toBe(false)
+    expect(existsSync(join(root, 'pwned2'))).toBe(false)
+    await rm(root, { recursive: true, force: true })
   })
 
   it('never includes password in wrapper script', () => {

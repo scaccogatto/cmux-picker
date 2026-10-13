@@ -29,7 +29,7 @@ export default defineConfig(({ mode }): ViteUserConfig => {
         external: [/^node:/],
       },
       minify: false,
-      target: 'node20',
+      target: 'node24',
     },
     test: {
       include: ['src/__tests__/**/*.spec.ts'],

@@ -22,6 +22,7 @@ import {
   truncateStart,
 } from './dom.ts'
 import { devWorkspaceLabel, groupAgents, pickAgent, selectableIds } from './agents.ts'
+import { DEFAULT_PREFS, type Last, type PrefStore, type Prefs } from './prefs.ts'
 
 /** How the picker reaches the native host, implemented by the content script */
 export interface Relay {
@@ -74,52 +75,9 @@ declare global {
 
 type Mode = 'idle' | 'picking' | 'popup' | 'sending'
 
-const LAST_KEY = 'cmux:last'
-const SHOT_KEY = 'cmux:shot'
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const CHEVRON_DOWN = 'M3 4.5 6 7.5l3-3'
 const CHEVRON_UP = 'M3 7.5 6 4.5l3 3'
-
-interface Last {
-  pane_id: string
-  session: string | null
-}
-
-function readLast(): Last | null {
-  try {
-    const raw = localStorage.getItem(LAST_KEY)
-    if (raw === null) return null
-    const parsed = JSON.parse(raw) as Partial<Last>
-    if (typeof parsed.pane_id !== 'string') return null
-    return { pane_id: parsed.pane_id, session: typeof parsed.session === 'string' ? parsed.session : null }
-  } catch {
-    return null
-  }
-}
-
-function writeLast(last: Last): void {
-  try {
-    localStorage.setItem(LAST_KEY, JSON.stringify(last))
-  } catch {
-    // storage unavailable (private mode, quota) - preselection just falls back next time
-  }
-}
-
-function readShotPref(): boolean {
-  try {
-    return localStorage.getItem(SHOT_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeShotPref(checked: boolean): void {
-  try {
-    localStorage.setItem(SHOT_KEY, checked ? '1' : '0')
-  } catch {
-    // storage unavailable (private mode, quota) - preference just won't persist
-  }
-}
 
 /**
  * Explains a StateResponse.reason for the not-reachable notice, naming the fix for the
@@ -382,7 +340,18 @@ kbd { display: inline-flex; align-items: center; justify-content: center; height
 }
 `
 
-export function mount(relay: Relay): void {
+export function mount(relay: Relay, prefStore: PrefStore): void {
+  // Preferences live in extension storage (async), so they load once in the background and
+  // a cached copy serves the synchronous reads below. Every save updates the cache too.
+  let prefs: Prefs = DEFAULT_PREFS
+  const prefsReady = prefStore.load().then((loaded) => {
+    prefs = loaded
+    return loaded
+  })
+  const writeLast = (last: Last): void => {
+    prefs = { ...prefs, last }
+    void prefStore.saveLast(last)
+  }
   const host = document.createElement('div')
   host.setAttribute(HOST_ATTR, '')
   host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;'
@@ -463,8 +432,17 @@ export function mount(relay: Relay): void {
   shotCheckbox.type = 'checkbox'
   shotCheckbox.className = 'switch'
   shotCheckbox.setAttribute('role', 'switch')
-  shotCheckbox.checked = readShotPref()
-  shotCheckbox.addEventListener('change', () => writeShotPref(shotCheckbox.checked))
+  shotCheckbox.checked = false
+  // A toggle made before the stored value arrives wins over it
+  let shotTouched = false
+  void prefsReady.then((loaded) => {
+    if (!shotTouched) shotCheckbox.checked = loaded.shot
+  })
+  shotCheckbox.addEventListener('change', () => {
+    shotTouched = true
+    prefs = { ...prefs, shot: shotCheckbox.checked }
+    void prefStore.saveShot(shotCheckbox.checked)
+  })
 
   const shotLabel = document.createElement('span')
   shotLabel.textContent = 'Attach screenshot'
@@ -1134,7 +1112,7 @@ export function mount(relay: Relay): void {
 
     const groups = groupAgents(state)
     selectableAgentIds = [...selectableIds(groups), 'spawn:here', 'spawn:worktree']
-    selectedPaneId = pickAgent(state, readLast())
+    selectedPaneId = pickAgent(state, prefs.last)
     const devLabel = devWorkspaceLabel(state)
 
     for (const group of groups) {
@@ -1169,7 +1147,7 @@ export function mount(relay: Relay): void {
   async function loadAgents(token: number): Promise<void> {
     showAgentsLoading()
     try {
-      const data = await relay.state()
+      const [data] = await Promise.all([relay.state(), prefsReady])
       if (token !== pickToken) return
       renderAgents(data)
     } catch {

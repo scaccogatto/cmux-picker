@@ -88,6 +88,12 @@ nativeMessaging:
 Connects to the local native messaging host the user installs with "npx cmux-picker install-host". The host relays the picked element and the prompt to cmux's Unix socket on the user's machine. It is the extension's only channel out; there is no server.
 ```
 
+storage:
+
+```
+Remembers two per-site preferences in the extension's own local storage: the last agent the user sent to and whether the screenshot option is on. Kept out of the page's localStorage so the page cannot read or change them. Nothing leaves the user's machine.
+```
+
 Host permissions: none declared, the field stays empty.
 
 **Remote code**: "No, I am not using remote code" (every script is bundled in the package; no eval, no remote scripts).

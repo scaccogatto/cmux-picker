@@ -18,7 +18,7 @@ cmux's Unix socket respects the user's socket control mode setting in cmux Setti
 
 ## What is stored in the browser
 
-Two preferences, in the page's own localStorage, per site: the last agent you targeted and whether the screenshot option is on. Nothing else is stored.
+Two preferences per site, in the extension's own storage (`chrome.storage.local`, keyed by the page's origin): the last agent you targeted and whether the screenshot option is on. Pages cannot read or change them. Nothing else is stored. Versions up to 0.1.0 kept these two values in the page's own localStorage: the extension now removes those copies the next time it runs on that site.
 
 ## Changes and contact
 

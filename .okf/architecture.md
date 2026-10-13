@@ -149,10 +149,10 @@ The host connects to cmux once per request: every `request(method, params)` in `
 
 One `vite.config.ts`, two modes, run together by `npm run build` (`vite build && vite build --mode extension`):
 
-- **Node build** (mode unset): entries `src/host.ts` and `src/cli.ts`, external only `/^node:/` (not `vite`: this package is not a Vite plugin), target `node20`, no minify. `dist/host.js` and `dist/cli.js` are self-contained: `package.json` has no `dependencies`, only `devDependencies`.
+- **Node build** (mode unset): entries `src/host.ts` and `src/cli.ts`, external only `/^node:/` (not `vite`: this package is not a Vite plugin), target `node24`, no minify. `dist/host.js` and `dist/cli.js` are self-contained: `package.json` has no `dependencies`, only `devDependencies`.
 - **Extension build** (`mode: 'extension'`): `publicDir: 'extension'` copies `manifest.json` and `icons/` into `dist/extension/` as static files; entries `src/extension/content.ts` and `src/extension/background.ts` build to `dist/extension/content.js` and `background.js`, target `es2022`, no minify.
 
-`allowImportingTsExtensions: true` (`tsconfig.json`) lets every `.ts` file import its siblings with a `.ts` extension; built output carries none. The manifest's `minimum_chrome_version` is `"117"`; `package.json`'s `engines.node` is `>=20`.
+`allowImportingTsExtensions: true` (`tsconfig.json`) lets every `.ts` file import its siblings with a `.ts` extension; built output carries none. The manifest's `minimum_chrome_version` is `"117"`; `package.json`'s `engines.node` is `>=24`, the only Node CI tests.
 
 ## Demo and Capture
 

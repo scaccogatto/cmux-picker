@@ -17,7 +17,7 @@ sources:
 
 ## Cutting a release
 
-1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. Nothing in `scripts`, `ci.yml`, or `release.yml` checks that the two match; keeping them in sync is a convention, not something enforced.
+1. **Bump both version fields.** `package.json`'s `version` and `extension/manifest.json`'s `version`. `src/__tests__/version.spec.ts` fails CI when the two differ, and `release.yml` fails when the tag is not `v` plus that version.
 2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries into a new dated section for the version. `0.1.0` (2026-09-10) is the first.
 3. **Commit, tag, push the tag:**
    ```sh
@@ -29,17 +29,23 @@ sources:
 
 ## What `release.yml` actually does
 
-Triggers on a `v*` tag push or `workflow_dispatch`. Steps, in order: `npm ci`, `npm run build`, `npm install -g npm@latest`, a version-already-published check, then a conditional publish.
+Triggers on a `v*` tag push only. There is no `workflow_dispatch`, and the publish job also carries `if: startsWith(github.ref, 'refs/tags/v')`, so no manual run from another branch can reach `npm publish`. Jobs, in order:
 
-- **No explicit `typecheck` or `test` step in this workflow.** Those run in `ci.yml`, which triggers on a push to `master`/`main` and on pull requests (`Lint`, `Typecheck`, `Test` which is `npm run coverage`, `Build`, then a Playwright browser install and `E2E`), not here. A tag push does not trigger `ci.yml` at all, and a feature-branch push with no open PR runs nothing.
-- **But `npm publish` triggers them anyway.** `package.json`'s `"prepublishOnly": "npm run typecheck && npm run test && npm run build"` runs automatically as an npm lifecycle hook on any `npm publish`, in CI or by hand. So the workflow's explicit `npm run build` and the one inside `prepublishOnly` both run; the build step happens twice. `prepublishOnly` runs `test` (`vitest run`), not `coverage`, `lint`, or `e2e`; those three are exercised only by CI on the push that preceded the tag, never by the release workflow or by `npm publish` itself.
-- **`npm install -g npm@latest`** upgrades the runner's npm to a version new enough for OIDC trusted publishing (npm 11.5.1 or later; an older npm does not speak the trusted-publisher exchange).
-- **Version check:** reads `name` and `version` from `package.json`, runs `npm view "$NAME@$VERSION" version`, and sets `published=true` if that succeeds. The publish step only runs `if: steps.check.outputs.published == 'false'`, so re-running the workflow or pushing a duplicate tag is safe: it never double-publishes.
-- **Publish:** `npm publish --provenance` at `NPM_CONFIG_LOGLEVEL: verbose`, with job `permissions: id-token: write` and no `NODE_AUTH_TOKEN` anywhere; `setup-node` runs without `registry-url`, which would plant an `_authToken=${NODE_AUTH_TOKEN}` placeholder in `.npmrc` that turns a failed OIDC exchange into a misleading `E404`. At verbose level a failed exchange logs `oidc Failed token exchange request with body message: ...` (`package not found` = no trusted publisher matches the run). The workflow's own comment notes that a token present would make npm skip OIDC.
+- **`ci`**: calls `ci.yml` as a reusable workflow (`workflow_call`) on the tagged commit: `Lint`, `Typecheck`, `Test` (`npm run coverage`), `Build`, Playwright install and `E2E`, which includes the packed-tarball bin check in `e2e/package.spec.ts`. `publish` needs it.
+- **`publish`** (`permissions: contents: read, id-token: write`, no dependency cache):
+  - **npm version guard:** uses the npm bundled with the Node 24 that `setup-node` installs and fails if it is older than 11.5.1 (the trusted-publishing minimum). There is no `npm install -g npm@latest`: nothing floating runs in the job that can mint the OIDC token.
+  - **Version guard:** fails unless the tag equals `v` + `package.json` `version` and `extension/manifest.json` carries the same version.
+  - `npm ci`, `npm run build`, then the unpacked extension is zipped as `cmux-picker-extension-<tag>.zip` and uploaded as a workflow artifact.
+  - **Already-published check:** `npm view "$NAME@$VERSION" version`. The publish step only runs `if: steps.check.outputs.published == 'false'`, so re-running the workflow never double-publishes.
+  - **Publish:** `npm publish --provenance` at `NPM_CONFIG_LOGLEVEL: verbose`, no `NODE_AUTH_TOKEN` anywhere. `setup-node` runs without `registry-url`, which would plant an `_authToken=${NODE_AUTH_TOKEN}` placeholder in `.npmrc` that turns a failed OIDC exchange into a misleading `E404`. At verbose level a failed exchange logs `oidc Failed token exchange request with body message: ...` (`package not found` = no trusted publisher matches the run). `prepublishOnly` (typecheck, test, build) still runs, which keeps a hand publish safe.
+  - **Provenance check:** after a publish, polls `npm view <name>@<version> dist.attestations.url` for up to about 150 seconds and fails if the registry shows no attestations. This is the end-to-end proof that trusted publishing worked.
+- **`github-release`** (`permissions: contents: write`): downloads the zip artifact and creates the GitHub Release for the tag with it attached (or replaces the asset on a re-run). No checkout and no npm in this job, so the write token never runs repository or dependency code.
+
+**No GitHub environment on `publish`.** The npm trusted publisher was configured with no environment (see below). npm matches the environment claim of the OIDC token against its config, and with the config and the workflow out of step the exchange can fail with `package not found`. To gate publishing behind a GitHub environment (for example `npm` limited to `v*` tags), add `environment: npm` to the job and the same name in the npm trusted-publisher config in one change, then prove it with the next release.
 
 ## One-time trusted-publishing bootstrap
 
-**Status: done on 2026-09-10. `cmux-picker@0.1.0` is on the registry (`time.created` 10:32:48Z, published by hand from the working tree at `7ad29ae`) and the GitHub Actions trusted publisher was configured on npmjs.com the same day. Nothing verifies the configuration end to end until a version bump actually reaches `release.yml`: the `v0.1.0` run skipped its publish step because `0.1.0` was already on the registry. The first real proof is `0.1.1`. If that run fails, read the failure code before touching anything: `package not found` in the OIDC exchange means the publisher config does not match the run (org, repo, workflow filename, environment), and `E403 OIDC permission denied for this action` means the config allows only `npm stage publish` while `release.yml` runs `npm publish`.**
+**Status: done on 2026-09-10. `cmux-picker@0.1.0` is on the registry (`time.created` 10:32:48Z, published by hand from the working tree at `7ad29ae`) and the GitHub Actions trusted publisher was configured on npmjs.com the same day. Nothing verifies the configuration end to end until a version bump actually reaches `release.yml`: the `v0.1.0` run skipped its publish step because `0.1.0` was already on the registry. The first real proof is `0.1.1`: the workflow's provenance check fails the run if the published version has no attestations. If that run fails, read the failure code before touching anything: `package not found` in the OIDC exchange means the publisher config does not match the run (org, repo, workflow filename, environment), and `E403 OIDC permission denied for this action` means the config allows only `npm stage publish` while `release.yml` runs `npm publish`.**
 
 A trusted publisher attaches to a package that already exists (npm/cli#8544 tracks first-publish support), so `0.1.0` had to be published by hand, once, with a maintainer's own npm account and 2FA:
 
@@ -55,7 +61,7 @@ A trusted publisher attaches to a package that already exists (npm/cli#8544 trac
    - Allowed actions: also permit direct publishing with `npm publish`. Configurations created after 2026-09-03 default to `npm stage publish` only, and `release.yml` runs `npm publish`: without this the OIDC exchange succeeds and the PUT fails with `E403 OIDC permission denied for this action`.
 4. Then Publishing access, "Require two-factor authentication and disallow tokens," so no token can ever publish this package again; trusted publishers keep working, they use OIDC tokens, not npm tokens.
 5. `npm logout` (removes the login token from `~/.npmrc`).
-6. Push the `v0.1.0` tag (from "Cutting a release" above) after the hand publish. Done on 2026-09-10: the Release run on `v0.1.0` found `0.1.0` already on the registry, skipped its publish step and went green, which is the intended outcome and not a proof that trusted publishing works yet. Pushed early, `release.yml`'s version-check step finds `0.1.0` not yet on the registry, so its publish step still runs `npm publish --provenance`, but no trusted publisher is configured yet and that run fails; it does not double-publish, it just fails red until re-triggered (`workflow_dispatch`) after the bootstrap above. Pushed after, the check finds `0.1.0` already on the registry and skips the publish step cleanly. Every later version is published by the workflow over OIDC, with provenance.
+6. Push the `v0.1.0` tag (from "Cutting a release" above) after the hand publish. Done on 2026-09-10: the Release run on `v0.1.0` found `0.1.0` already on the registry, skipped its publish step and went green, which is the intended outcome and not a proof that trusted publishing works yet. Pushed early, `release.yml`'s version-check step finds `0.1.0` not yet on the registry, so its publish step still runs `npm publish --provenance`, but no trusted publisher is configured yet and that run fails; it does not double-publish, it just fails red until re-run (re-run the failed jobs of that tag's run) after the bootstrap above. Pushed after, the check finds `0.1.0` already on the registry and skips the publish step cleanly. Every later version is published by the workflow over OIDC, with provenance.
 
 Nothing from this bootstrap is stored in the repo, in GitHub secrets, or on any machine afterward.
 
@@ -107,12 +113,7 @@ Manual entries in `CHANGELOG.md` under `[Unreleased]` sections (Features, Bug Fi
 
 ## Pre-publish checklist
 
-`npm publish`'s own `prepublishOnly` hook only covers typecheck, test, and build. Everything else needs to be run and checked by hand before tagging:
-- `npm run lint`
-- `npm run coverage` (a superset of `test`, with the coverage report)
-- `npm run e2e` (needs `npx playwright install --with-deps chromium` first, as `ci.yml` does); it also packs and installs the package and runs the bin link the way npx does (`e2e/package.spec.ts`), the check 0.1.0 shipped without
-- `npm run build` clean, with no uncommitted output
+`release.yml` runs the whole CI suite on the tagged commit and checks the tag against both version fields, so a tag push is safe to try: a red run publishes nothing. Before tagging, still check by hand:
+- `CHANGELOG.md` has a dated section for the version, moved from `[Unreleased]`
 - No uncommitted changes
-- `package.json` and `extension/manifest.json` versions match (a convention, not enforced by tooling)
-- Tag matches the version
-- CI green on the commit being tagged (`ci.yml` only runs on a push to `master`/`main` or a pull request, so this only applies when that commit reached CI one of those ways)
+- After the run: the GitHub Release carries `cmux-picker-extension-<tag>.zip`, and `npm view cmux-picker@<version> dist.attestations` is not empty
